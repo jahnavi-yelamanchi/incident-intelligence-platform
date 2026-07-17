@@ -228,4 +228,22 @@ describe("API", () => {
     expect(callback.statusCode).toBe(201);
     await app.close();
   });
+
+  it("verifies Slack event signatures before accepting a URL challenge", async () => {
+    const processSlackEvent = vi.fn(async () => ({ kind: "challenge" as const, challenge: "challenge-token" }));
+    const app = await buildApp({
+      logger: false, corsOrigins: [], getIntegrationCredential: async () => null, publishEvents: async () => undefined,
+      readiness: async () => ({ database: true, redis: true, queue: true }), authenticate: async () => null,
+      listIncidents: async () => [], createActionRequest: async () => ({}), decideActionApproval: async () => ({}), cancelActionRequest: async () => ({}), upsertDocument: async () => ({}), searchEvidence: async () => [], generateInvestigation: async () => ({}), listHypotheses: async () => [],
+      resolveWebhookIntegration: async () => ({ organizationId: context.organizationId, secret: "slack-secret", enabled: true }), processSlackEvent,
+    });
+    const payload = JSON.stringify({ type: "url_verification", challenge: "challenge-token" });
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const signature = `v0=${createHmac("sha256", "slack-secret").update(`v0:${timestamp}:${payload}`).digest("hex")}`;
+    const response = await app.inject({ method: "POST", url: "/v1/integrations/slack/75c56ad8-d17d-4d28-a4e3-66be34d4f18a/events", headers: { "content-type": "application/json", "x-slack-request-timestamp": timestamp, "x-slack-signature": signature }, payload });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ challenge: "challenge-token" });
+    expect(processSlackEvent).toHaveBeenCalledWith(context.organizationId, expect.objectContaining({ type: "url_verification" }), expect.any(String));
+    await app.close();
+  });
 });

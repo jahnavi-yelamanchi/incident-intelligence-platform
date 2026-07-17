@@ -11,6 +11,7 @@ import { resolveWebhookIntegration } from "./webhook-integrations.js";
 import { completeSlackOAuth, slackAuthorizeUrl, type SlackOAuthConfig } from "./slack-oauth.js";
 import { RealtimeHub } from "./realtime.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
+import { processSlackEvent } from "./slack-events.js";
 
 const config = loadConfig();
 const queues = createQueueRuntime(config.REDIS_URL);
@@ -77,6 +78,7 @@ const app = await buildApp({
     beginSlackOAuth: (context: Parameters<typeof slackAuthorizeUrl>[0]) => Promise.resolve(slackAuthorizeUrl(context, slackOAuthConfig)),
     completeSlackOAuth: (input: { code: string; state: string; correlationId: string }) => completeSlackOAuth(database, input, slackOAuthConfig, input.correlationId),
   } : {}),
+  processSlackEvent: (organizationId, body, correlationId) => processSlackEvent(database, organizationId, body, correlationId),
   realtimeHub,
 });
 

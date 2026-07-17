@@ -14,9 +14,10 @@ import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { verifyWebhookSignature } from "./security/webhook-signature.js";
 import { integrationUpsertSchema, type IntegrationUpsert } from "./integrations.js";
 import { githubDeploymentStatusSchema, normalizeGitHubDeploymentStatus } from "./ingestion/normalize-github.js";
-import { verifyGitHubSignature } from "./security/integration-signatures.js";
+import { verifyGitHubSignature, verifySlackSignature } from "./security/integration-signatures.js";
 import type { WebhookIntegration } from "./webhook-integrations.js";
 import { accessTokenFromSocketProtocol, RealtimeHub, type RealtimeSocket } from "./realtime.js";
+import type { SlackInboundResult } from "./slack-events.js";
 
 export type IntegrationCredential = {
   organizationId: string;
@@ -43,6 +44,7 @@ export type ApiDependencies = {
   resolveWebhookIntegration?: (provider: "github" | "slack", connectionId: string) => Promise<WebhookIntegration | null>;
   beginSlackOAuth?: (context: ApiAuthContext) => Promise<string>;
   completeSlackOAuth?: (input: { code: string; state: string; correlationId: string }) => Promise<unknown>;
+  processSlackEvent?: (organizationId: string, body: unknown, correlationId: string) => Promise<SlackInboundResult>;
   realtimeHub?: RealtimeHub;
   logger?: boolean;
 };
@@ -195,6 +197,17 @@ export async function buildApp(dependencies: ApiDependencies) {
     const query = z.object({ code: z.string().min(1), state: z.string().min(1), error: z.string().optional() }).safeParse(request.query);
     if (!query.success || query.data.error) return reply.code(400).send({ error: "slack_oauth_denied" });
     return reply.code(201).send(await dependencies.completeSlackOAuth({ code: query.data.code, state: query.data.state, correlationId: request.id }));
+  });
+
+  app.post<{ Params: { connectionId: string } }>("/v1/integrations/slack/:connectionId/events", { config: { rawBody: true, rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
+    if (!dependencies.resolveWebhookIntegration || !dependencies.processSlackEvent) return reply.code(503).send({ error: "integrations_unavailable" });
+    const connection = await dependencies.resolveWebhookIntegration("slack", request.params.connectionId);
+    if (!connection || !connection.enabled) return reply.code(404).send({ error: "integration_not_found" });
+    const raw = typeof request.rawBody === "string" ? request.rawBody : request.rawBody?.toString("utf8") ?? "";
+    if (!verifySlackSignature(raw, connection.secret, request.headers["x-slack-signature"] as string | undefined, request.headers["x-slack-request-timestamp"] as string | undefined)) return reply.code(401).send({ error: "invalid_signature" });
+    const result = await dependencies.processSlackEvent(connection.organizationId, request.body, request.id);
+    if (result.kind === "challenge") return reply.send({ challenge: result.challenge });
+    return reply.code(200).send({ ok: true, result: result.kind });
   });
 
   app.post<{ Params: { connectionId: string } }>("/v1/integrations/github/:connectionId/webhook", { config: { rawBody: true, rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
