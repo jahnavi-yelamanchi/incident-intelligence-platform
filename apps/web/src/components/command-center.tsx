@@ -26,6 +26,7 @@ import { type IncidentView } from "./data";
 import { MarkIcon } from "./icons";
 
 type ApprovalState = "idle" | "review" | "submitting" | "submitted" | "failed";
+type HypothesisView = { id: string; statement: string; confidence: number; citations: unknown[]; recommendedChecks: unknown[] };
 
 const navigation = [
   { label: "Command center", icon: LayoutDashboard },
@@ -43,6 +44,7 @@ export function CommandCenter({ userName, initialIncidents }: { userName: string
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [approval, setApproval] = useState<ApprovalState>("idle");
   const [liveTick, setLiveTick] = useState(0);
+  const [hypotheses, setHypotheses] = useState<HypothesisView[]>([]);
 
   const active = useMemo(() => initialIncidents.find((incident) => incident.id === activeId) ?? initialIncidents[0], [activeId, initialIncidents]);
 
@@ -50,6 +52,16 @@ export function CommandCenter({ userName, initialIncidents }: { userName: string
     const stored = window.localStorage.getItem("aegis:hidden-panels");
     queueMicrotask(() => setHiddenPanels(parseHiddenPanels(stored)));
   }, []);
+
+  useEffect(() => {
+    if (!activeId) return;
+    let cancelled = false;
+    void fetch(`/api/demo/hypotheses?incidentId=${encodeURIComponent(activeId)}`)
+      .then((response) => response.ok ? response.json() as Promise<{ items: HypothesisView[] }> : { items: [] })
+      .then((payload) => { if (!cancelled) setHypotheses(payload.items); })
+      .catch(() => { if (!cancelled) setHypotheses([]); })
+    return () => { cancelled = true; };
+  }, [activeId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setLiveTick((value) => value + 1), 8000);
@@ -174,7 +186,7 @@ export function CommandCenter({ userName, initialIncidents }: { userName: string
         </div>
       </section>
 
-      {!investigationHidden && <InvestigationPanel onClose={() => togglePanel("investigation")} />}
+      {!investigationHidden && <InvestigationPanel onClose={() => togglePanel("investigation")} hypotheses={hypotheses} />}
 
       <footer className="action-bar">
         <div><Sparkles size={18} /><span><small>Suggested remediation</small>Increase checkout-api database pool from 50 to 150.</span></div>
@@ -204,23 +216,23 @@ function IncidentRail({ incidents, active, onSelect, onClose }: { incidents: Inc
   );
 }
 
-function InvestigationPanel({ onClose }: { onClose: () => void }) {
+function InvestigationPanel({ onClose, hypotheses }: { onClose: () => void; hypotheses: HypothesisView[] }) {
+  const top = hypotheses[0];
   return (
     <aside className="investigation-panel">
       <div className="rail-title"><h2>Investigation</h2><button onClick={onClose} aria-label="Hide investigation"><ChevronRight size={17} /></button></div>
       <section className="hypothesis">
         <span>Top hypothesis</span>
-        <h3>Investigation ready for evidence</h3>
-        <p>Runbook retrieval and cited hypotheses appear here when generated for this incident.</p>
+        {top ? <><h3>{top.statement}</h3><p>{Math.round(top.confidence * 100)}% confidence · {top.citations.length} cited source{top.citations.length === 1 ? "" : "s"}</p></> : <><h3>No cited hypothesis yet</h3><p>Index runbooks or service documents, then generate an investigation with a configured provider.</p></>}
       </section>
       <section className="evidence-list">
         <span>Evidence</span>
         <button><Activity size={18} /><span><strong>Live incident evidence</strong><small>Available from the timeline</small></span><ChevronRight size={16} /></button>
-        <button><FileCode2 size={18} /><span><strong>Runbook retrieval</strong><small>Connect documents to enable</small></span><ChevronRight size={16} /></button>
+        <button><FileCode2 size={18} /><span><strong>Runbook retrieval</strong><small>{top ? `${top.citations.length} cited source${top.citations.length === 1 ? "" : "s"}` : "No cited sources yet"}</small></span><ChevronRight size={16} /></button>
       </section>
       <section className="recommendation">
         <span>Recommended action</span>
-        <p>Recommendations are generated only after evidence retrieval has supporting citations.</p>
+        <p>{top ? `${top.recommendedChecks.length} recommended check${top.recommendedChecks.length === 1 ? "" : "s"} available from the cited investigation.` : "Recommendations appear only after evidence retrieval has supporting citations."}</p>
         <button>Inspect action <ChevronRight size={16} /></button>
       </section>
     </aside>

@@ -206,3 +206,18 @@ export async function generateInvestigation(
     };
   });
 }
+
+export async function listHypotheses(database: DatabaseClient, context: ApiAuthContext, incidentId: string) {
+  return withTenant(database, context.organizationId, async (transaction) => {
+    const hypotheses = await transaction.hypothesis.findMany({ where: { incidentId }, orderBy: { generatedAt: "desc" }, take: 10 });
+    return hypotheses.map((hypothesis) => ({
+      id: hypothesis.id,
+      statement: hypothesis.statement,
+      confidence: Number(hypothesis.confidence),
+      citations: hypothesis.supportingEvidence,
+      conflictingEvidence: hypothesis.conflictingEvidence,
+      recommendedChecks: hypothesis.recommendedChecks,
+      generatedAt: hypothesis.generatedAt.toISOString(),
+    }));
+  });
+}

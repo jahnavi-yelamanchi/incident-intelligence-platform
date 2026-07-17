@@ -32,6 +32,7 @@ describe("API", () => {
       upsertDocument: async () => ({}),
       searchEvidence: async () => [],
       generateInvestigation: async () => ({}),
+      listHypotheses: async () => [],
     });
 
     const payload = JSON.stringify({
@@ -87,6 +88,7 @@ describe("API", () => {
       upsertDocument: async () => ({}),
       searchEvidence: async () => [],
       generateInvestigation: async () => ({}),
+      listHypotheses: async () => [],
     });
 
     const response = await app.inject({ method: "GET", url: "/health/ready" });
@@ -111,6 +113,7 @@ describe("API", () => {
       upsertDocument: async () => ({}),
       searchEvidence: async () => [],
       generateInvestigation: async () => ({}),
+      listHypotheses: async () => [],
     });
 
     const response = await app.inject({
@@ -141,6 +144,7 @@ describe("API", () => {
       upsertDocument,
       searchEvidence,
       generateInvestigation: async () => ({}),
+      listHypotheses: async () => [],
     });
 
     const create = await app.inject({
@@ -172,6 +176,7 @@ describe("API", () => {
       upsertDocument: async () => ({}),
       searchEvidence: async () => [],
       generateInvestigation,
+      listHypotheses: async () => [],
     });
     const response = await app.inject({ method: "POST", url: "/v1/incidents/75c56ad8-d17d-4d28-a4e3-66be34d4f18a/investigation" });
     expect(response.statusCode).toBe(201);

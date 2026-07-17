@@ -3,7 +3,7 @@ import { loadConfig } from "./config.js";
 import { createQueueRuntime } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
 import { cancelActionRequest, createActionRequest, decideActionApproval, listIncidents } from "./incidents.js";
-import { generateInvestigation, searchEvidence, upsertDocument } from "./investigation.js";
+import { generateInvestigation, listHypotheses, searchEvidence, upsertDocument } from "./investigation.js";
 import { createOpenAiInvestigationProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
 import { createTemporalRemediationDispatcher, unavailableRemediationDispatcher } from "./remediation-dispatcher.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
@@ -61,6 +61,7 @@ const app = await buildApp({
   searchEvidence: (context, input) => searchEvidence(database, context, input),
   generateInvestigation: (context, incidentId, correlationId) =>
     generateInvestigation(database, context, incidentId, investigationProvider, correlationId),
+  listHypotheses: (context, incidentId) => listHypotheses(database, context, incidentId),
 });
 
 const close = async (signal: string) => {

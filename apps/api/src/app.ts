@@ -31,6 +31,7 @@ export type ApiDependencies = {
   upsertDocument: (context: ApiAuthContext, input: DocumentUpsert, correlationId: string) => Promise<unknown>;
   searchEvidence: (context: ApiAuthContext, input: EvidenceSearch) => Promise<unknown[]>;
   generateInvestigation: (context: ApiAuthContext, incidentId: string, correlationId: string) => Promise<unknown>;
+  listHypotheses: (context: ApiAuthContext, incidentId: string) => Promise<unknown[]>;
   logger?: boolean;
 };
 
@@ -128,6 +129,12 @@ export async function buildApp(dependencies: ApiDependencies) {
     const context = await dependencies.authenticate(request.headers.authorization);
     if (!context) return reply.code(401).send({ error: "unauthorized" });
     return reply.code(201).send(await dependencies.generateInvestigation(context, request.params.incidentId, request.id));
+  });
+
+  app.get<{ Params: { incidentId: string } }>("/v1/incidents/:incidentId/hypotheses", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    return { items: await dependencies.listHypotheses(context, request.params.incidentId) };
   });
 
   app.post<{ Params: { integrationId: string } }>(
