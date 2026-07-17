@@ -49,6 +49,7 @@ export type ApiDependencies = {
   processSlackEvent?: (organizationId: string, body: unknown, correlationId: string) => Promise<SlackInboundResult>;
   syncGitHubDocuments?: (context: ApiAuthContext, connectionId: string, correlationId: string) => Promise<{ synced: number }>;
   listAuditEvents?: (context: ApiAuthContext, query: AuditQuery) => Promise<unknown[]>;
+  serviceGraph?: (context: ApiAuthContext) => Promise<unknown>;
   realtimeHub?: RealtimeHub;
   publishRealtime?: (organizationId: string, type: string, payload: unknown) => Promise<void>;
   logger?: boolean;
@@ -123,6 +124,12 @@ export async function buildApp(dependencies: ApiDependencies) {
     const query = auditQuerySchema.safeParse(request.query);
     if (!query.success) return reply.code(400).send({ error: "invalid_query" });
     return { items: await dependencies.listAuditEvents(context, query.data) };
+  });
+  app.get("/v1/services/graph", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.serviceGraph) return reply.code(503).send({ error: "service_graph_unavailable" });
+    return dependencies.serviceGraph(context);
   });
 
   app.post<{ Params: { incidentId: string } }>("/v1/incidents/:incidentId/actions", async (request, reply) => {

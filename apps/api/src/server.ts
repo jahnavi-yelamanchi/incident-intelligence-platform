@@ -15,6 +15,7 @@ import { processSlackEvent } from "./slack-events.js";
 import { createOpaPolicyEvaluator, developmentPolicyEvaluator } from "./policy.js";
 import { createInstallationToken, fetchRepositoryMarkdown } from "./github-app.js";
 import { listAuditEvents } from "./audit.js";
+import { serviceGraph } from "./services.js";
 
 const config = loadConfig();
 const queues = createQueueRuntime(config.REDIS_URL);
@@ -79,6 +80,7 @@ const app = await buildApp({
     generateInvestigation(database, context, incidentId, investigationProvider, correlationId),
   listHypotheses: (context, incidentId) => listHypotheses(database, context, incidentId),
   listAuditEvents: (context, query) => listAuditEvents(database, context, query),
+  serviceGraph: (context) => serviceGraph(database, context),
   listIntegrations: (context) => listIntegrations(database, context),
   upsertIntegration: (context, input, correlationId) => upsertIntegration(database, context, input, config.INTEGRATION_ENCRYPTION_KEY, correlationId),
   resolveWebhookIntegration: (provider, connectionId) => resolveWebhookIntegration(database, provider, connectionId, config.INTEGRATION_ENCRYPTION_KEY),
