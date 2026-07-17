@@ -3,7 +3,9 @@ packages:
   - packages/*
 allowBuilds:
   '@prisma/engines': true
+  '@swc/core': true
   esbuild: true
   prisma: true
+  protobufjs: true
   sharp: true
   unrs-resolver: true
