@@ -45,6 +45,8 @@ pnpm test
 pnpm build
 ```
 
+Every pull request and `main` push runs this same verification set in GitHub Actions, plus dependency review. Production release gates and recovery validation are documented in [RELEASE.md](docs/operations/RELEASE.md).
+
 Operational credentials must never be committed. Production workloads receive short-lived AWS credentials through IRSA and Kubernetes permissions through dedicated service accounts.
 
 ## Live local demo
