@@ -3,6 +3,12 @@ import type { NormalizedEvent } from "@incident/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
+const context = {
+  subject: "auth0|operator",
+  organizationId: "75c56ad8-d17d-4d28-a4e3-66be34d4f18a",
+  roles: ["responder"],
+};
+
 describe("API", () => {
   it("accepts a signed Alertmanager webhook and publishes normalized events", async () => {
     const publishEvents = vi.fn<
@@ -18,6 +24,8 @@ describe("API", () => {
       }),
       publishEvents,
       readiness: async () => ({ database: true, redis: true, queue: true }),
+      authenticate: async () => context,
+      listIncidents: async () => [],
     });
 
     const payload = JSON.stringify({
@@ -65,11 +73,36 @@ describe("API", () => {
       getIntegrationCredential: async () => null,
       publishEvents: async () => undefined,
       readiness: async () => ({ database: true, redis: false, queue: true }),
+      authenticate: async () => null,
+      listIncidents: async () => [],
     });
 
     const response = await app.inject({ method: "GET", url: "/health/ready" });
     expect(response.statusCode).toBe(503);
     expect(response.json().status).toBe("not_ready");
+    await app.close();
+  });
+
+  it("derives the tenant from an authenticated access token context", async () => {
+    const listIncidents = vi.fn(async () => []);
+    const app = await buildApp({
+      logger: false,
+      corsOrigins: [],
+      getIntegrationCredential: async () => null,
+      publishEvents: async () => undefined,
+      readiness: async () => ({ database: true, redis: true, queue: true }),
+      authenticate: async (authorization) => (authorization ? context : null),
+      listIncidents,
+    });
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/v1/incidents?status=investigating&limit=10",
+      headers: { authorization: "Bearer signed-access-token" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(listIncidents).toHaveBeenCalledWith(context, { status: "investigating", limit: 10 });
     await app.close();
   });
 });

@@ -7,6 +7,9 @@ const configSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   CORS_ORIGINS: z.string().default("http://localhost:3000"),
   REDIS_URL: z.string().url().default("redis://localhost:6379"),
+  DATABASE_URL: z.string().url().default("postgresql://incident_app:incident_app@localhost:5432/incident"),
+  AUTH0_ISSUER_BASE_URL: z.string().url().optional(),
+  AUTH0_AUDIENCE: z.string().min(1).optional(),
 });
 
 export type ApiConfig = z.infer<typeof configSchema>;

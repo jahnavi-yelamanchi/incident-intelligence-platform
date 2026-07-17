@@ -3,9 +3,8 @@
   "compilerOptions": {
     "outDir": "dist",
     "declaration": true,
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext"
+    "module": "ESNext",
+    "moduleResolution": "Bundler"
   },
   "include": ["src/**/*.ts"]
 }
-

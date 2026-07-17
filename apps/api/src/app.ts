@@ -7,6 +7,8 @@ import { alertmanagerWebhookSchema, type NormalizedEvent } from "@incident/contr
 import Fastify, { LogController } from "fastify";
 import rawBody from "fastify-raw-body";
 import { normalizeAlertmanagerWebhook } from "./ingestion/normalize-alertmanager.js";
+import { listIncidentsQuerySchema, type ListIncidentsQuery } from "./incidents.js";
+import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { verifyWebhookSignature } from "./security/webhook-signature.js";
 
 export type IntegrationCredential = {
@@ -20,6 +22,8 @@ export type ApiDependencies = {
   getIntegrationCredential: (integrationId: string) => Promise<IntegrationCredential | null>;
   publishEvents: (events: NormalizedEvent[], correlationId: string) => Promise<void>;
   readiness: () => Promise<{ database: boolean; redis: boolean; queue: boolean }>;
+  authenticate: (authorization: string | undefined) => Promise<ApiAuthContext | null>;
+  listIncidents: (context: ApiAuthContext, query: ListIncidentsQuery) => Promise<unknown[]>;
   logger?: boolean;
 };
 
@@ -52,6 +56,21 @@ export async function buildApp(dependencies: ApiDependencies) {
     const checks = await dependencies.readiness();
     const ready = Object.values(checks).every(Boolean);
     return reply.code(ready ? 200 : 503).send({ status: ready ? "ready" : "not_ready", checks });
+  });
+
+  app.get("/v1/incidents", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+
+    const parsed = listIncidentsQuerySchema.safeParse(request.query);
+    if (!parsed.success) {
+      return reply.code(400).send({
+        error: "invalid_query",
+        issues: parsed.error.issues.map((issue) => ({ path: issue.path.join("."), message: issue.message })),
+      });
+    }
+
+    return { items: await dependencies.listIncidents(context, parsed.data) };
   });
 
   app.post<{ Params: { integrationId: string } }>(

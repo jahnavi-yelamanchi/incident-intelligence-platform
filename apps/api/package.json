@@ -18,9 +18,11 @@
     "@fastify/swagger": "latest",
     "@fastify/swagger-ui": "latest",
     "@incident/contracts": "workspace:*",
+    "@incident/database": "workspace:*",
     "@incident/queues": "workspace:*",
     "fastify": "latest",
     "fastify-raw-body": "latest",
+    "jose": "latest",
     "pino": "latest",
     "zod": "^3.25.67"
   },

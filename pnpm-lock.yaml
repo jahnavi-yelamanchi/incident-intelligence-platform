@@ -38,6 +38,9 @@ importers:
       '@incident/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@incident/database':
+        specifier: workspace:*
+        version: link:../../packages/database
       '@incident/queues':
         specifier: workspace:*
         version: link:../../packages/queues
@@ -47,6 +50,9 @@ importers:
       fastify-raw-body:
         specifier: latest
         version: 5.0.0
+      jose:
+        specifier: latest
+        version: 6.2.3
       pino:
         specifier: latest
         version: 10.3.1

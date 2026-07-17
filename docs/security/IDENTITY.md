@@ -10,6 +10,8 @@ The production identity provider is Auth0. The application uses Auth0 Organizati
 
 The API must derive tenant and role context from validated access-token claims. It must never accept an organization ID or role from an untrusted request header or body.
 
+The Fastify API verifies RS256 access tokens against the Auth0 tenant JWKS, with `AUTH0_ISSUER_BASE_URL` and `AUTH0_AUDIENCE` set at runtime. It rejects requests without a valid bearer token before executing a tenant-scoped database query.
+
 ## Local development
 
 When Auth0 variables are absent, the Next.js application permits a clearly marked local operator only while `NODE_ENV=development`. A production runtime with missing Auth0 configuration returns `503 identity_provider_unavailable`; it never activates the bypass.
