@@ -71,6 +71,17 @@ enum ServiceVerificationStatus {
   verified
 }
 
+enum IntegrationProvider {
+  github
+  slack
+}
+
+enum IntegrationStatus {
+  active
+  disabled
+  error
+}
+
 model Organization {
   id          String   @id @default(uuid()) @db.Uuid
   auth0Id     String   @unique @map("auth0_id")
@@ -87,8 +98,28 @@ model Organization {
   documents         Document[]
   actionRequests    ActionRequest[]
   auditEvents       AuditEvent[]
+  integrations      IntegrationConnection[]
 
   @@map("organizations")
+}
+
+model IntegrationConnection {
+  id                   String              @id @default(uuid()) @db.Uuid
+  organizationId       String              @map("organization_id") @db.Uuid
+  provider             IntegrationProvider
+  externalId           String              @map("external_id")
+  status               IntegrationStatus  @default(active)
+  encryptedCredentials String              @map("encrypted_credentials")
+  metadata             Json                @default("{}")
+  tokenExpiresAt       DateTime?           @map("token_expires_at") @db.Timestamptz(6)
+  createdAt            DateTime            @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime            @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, provider, externalId])
+  @@index([organizationId, provider, status])
+  @@map("integration_connections")
 }
 
 model User {
