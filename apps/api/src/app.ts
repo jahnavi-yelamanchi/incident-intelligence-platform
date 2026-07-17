@@ -19,6 +19,7 @@ import { verifyGitHubSignature, verifySlackSignature } from "./security/integrat
 import type { WebhookIntegration } from "./webhook-integrations.js";
 import { accessTokenFromSocketProtocol, RealtimeHub, type RealtimeSocket } from "./realtime.js";
 import type { SlackInboundResult } from "./slack-events.js";
+import { auditQuerySchema, type AuditQuery } from "./audit.js";
 
 export type IntegrationCredential = {
   organizationId: string;
@@ -47,6 +48,7 @@ export type ApiDependencies = {
   completeSlackOAuth?: (input: { code: string; state: string; correlationId: string }) => Promise<unknown>;
   processSlackEvent?: (organizationId: string, body: unknown, correlationId: string) => Promise<SlackInboundResult>;
   syncGitHubDocuments?: (context: ApiAuthContext, connectionId: string, correlationId: string) => Promise<{ synced: number }>;
+  listAuditEvents?: (context: ApiAuthContext, query: AuditQuery) => Promise<unknown[]>;
   realtimeHub?: RealtimeHub;
   publishRealtime?: (organizationId: string, type: string, payload: unknown) => Promise<void>;
   logger?: boolean;
@@ -113,6 +115,14 @@ export async function buildApp(dependencies: ApiDependencies) {
     }
 
     return { items: await dependencies.listIncidents(context, parsed.data) };
+  });
+  app.get("/v1/audit-events", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.listAuditEvents) return reply.code(503).send({ error: "audit_unavailable" });
+    const query = auditQuerySchema.safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: "invalid_query" });
+    return { items: await dependencies.listAuditEvents(context, query.data) };
   });
 
   app.post<{ Params: { incidentId: string } }>("/v1/incidents/:incidentId/actions", async (request, reply) => {

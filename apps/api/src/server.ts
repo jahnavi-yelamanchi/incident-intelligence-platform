@@ -14,6 +14,7 @@ import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js
 import { processSlackEvent } from "./slack-events.js";
 import { createOpaPolicyEvaluator, developmentPolicyEvaluator } from "./policy.js";
 import { createInstallationToken, fetchRepositoryMarkdown } from "./github-app.js";
+import { listAuditEvents } from "./audit.js";
 
 const config = loadConfig();
 const queues = createQueueRuntime(config.REDIS_URL);
@@ -77,6 +78,7 @@ const app = await buildApp({
   generateInvestigation: (context, incidentId, correlationId) =>
     generateInvestigation(database, context, incidentId, investigationProvider, correlationId),
   listHypotheses: (context, incidentId) => listHypotheses(database, context, incidentId),
+  listAuditEvents: (context, query) => listAuditEvents(database, context, query),
   listIntegrations: (context) => listIntegrations(database, context),
   upsertIntegration: (context, input, correlationId) => upsertIntegration(database, context, input, config.INTEGRATION_ENCRYPTION_KEY, correlationId),
   resolveWebhookIntegration: (provider, connectionId) => resolveWebhookIntegration(database, provider, connectionId, config.INTEGRATION_ENCRYPTION_KEY),
