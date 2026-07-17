@@ -10,6 +10,8 @@ const configSchema = z.object({
   DATABASE_URL: z.string().url().default("postgresql://incident_app:incident_app@localhost:5432/incident"),
   AUTH0_ISSUER_BASE_URL: z.string().url().optional(),
   AUTH0_AUDIENCE: z.string().min(1).optional(),
+  DEMO_MODE: z.enum(["true", "false"]).default("false"),
+  DEMO_ORGANIZATION_ID: z.string().uuid().default("00000000-0000-4000-8000-000000000001"),
 });
 
 export type ApiConfig = z.infer<typeof configSchema>;

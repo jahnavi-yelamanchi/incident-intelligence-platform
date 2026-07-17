@@ -26,6 +26,7 @@ describe("API", () => {
       readiness: async () => ({ database: true, redis: true, queue: true }),
       authenticate: async () => context,
       listIncidents: async () => [],
+      createActionRequest: async () => ({}),
     });
 
     const payload = JSON.stringify({
@@ -75,6 +76,7 @@ describe("API", () => {
       readiness: async () => ({ database: true, redis: false, queue: true }),
       authenticate: async () => null,
       listIncidents: async () => [],
+      createActionRequest: async () => ({}),
     });
 
     const response = await app.inject({ method: "GET", url: "/health/ready" });
@@ -93,6 +95,7 @@ describe("API", () => {
       readiness: async () => ({ database: true, redis: true, queue: true }),
       authenticate: async (authorization) => (authorization ? context : null),
       listIncidents,
+      createActionRequest: async () => ({}),
     });
 
     const response = await app.inject({

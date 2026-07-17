@@ -2,21 +2,27 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createQueueRuntime } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
-import { listIncidents } from "./incidents.js";
+import { createActionRequest, listIncidents } from "./incidents.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 
 const config = loadConfig();
 const queues = createQueueRuntime(config.REDIS_URL);
 const database = createDatabaseClient(config.DATABASE_URL);
-if (!config.AUTH0_ISSUER_BASE_URL || !config.AUTH0_AUDIENCE) {
+const isDemoMode = config.NODE_ENV === "development" && config.DEMO_MODE === "true";
+if (!isDemoMode && (!config.AUTH0_ISSUER_BASE_URL || !config.AUTH0_AUDIENCE)) {
   throw new Error("AUTH0_ISSUER_BASE_URL and AUTH0_AUDIENCE are required to start the API.");
 }
-const authenticate = createAuth0AccessTokenVerifier({
-  issuer: config.AUTH0_ISSUER_BASE_URL,
-  audience: config.AUTH0_AUDIENCE,
-  organizationClaim: "https://incident-intelligence.example/organization_id",
-  rolesClaim: "https://incident-intelligence.example/roles",
-});
+const authenticate = isDemoMode
+  ? async (authorization: string | undefined) =>
+      authorization === "Bearer aegis-demo"
+        ? { subject: "demo-operator", organizationId: config.DEMO_ORGANIZATION_ID, roles: ["responder", "production-approver"] }
+        : null
+  : createAuth0AccessTokenVerifier({
+      issuer: config.AUTH0_ISSUER_BASE_URL!,
+      audience: config.AUTH0_AUDIENCE!,
+      organizationClaim: "https://incident-intelligence.example/organization_id",
+      rolesClaim: "https://incident-intelligence.example/roles",
+    });
 
 const app = await buildApp({
   corsOrigins: config.CORS_ORIGINS.split(",").map((origin) => origin.trim()),
@@ -32,6 +38,8 @@ const app = await buildApp({
   },
   authenticate,
   listIncidents: (context, query) => listIncidents(database, context, query),
+  createActionRequest: (context, incidentId, input, correlationId) =>
+    createActionRequest(database, context, incidentId, input, correlationId),
 });
 
 const close = async (signal: string) => {

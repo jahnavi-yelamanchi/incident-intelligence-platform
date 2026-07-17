@@ -7,7 +7,7 @@ import { alertmanagerWebhookSchema, type NormalizedEvent } from "@incident/contr
 import Fastify, { LogController } from "fastify";
 import rawBody from "fastify-raw-body";
 import { normalizeAlertmanagerWebhook } from "./ingestion/normalize-alertmanager.js";
-import { listIncidentsQuerySchema, type ListIncidentsQuery } from "./incidents.js";
+import { createActionRequestSchema, listIncidentsQuerySchema, type CreateActionRequest, type ListIncidentsQuery } from "./incidents.js";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { verifyWebhookSignature } from "./security/webhook-signature.js";
 
@@ -24,6 +24,7 @@ export type ApiDependencies = {
   readiness: () => Promise<{ database: boolean; redis: boolean; queue: boolean }>;
   authenticate: (authorization: string | undefined) => Promise<ApiAuthContext | null>;
   listIncidents: (context: ApiAuthContext, query: ListIncidentsQuery) => Promise<unknown[]>;
+  createActionRequest: (context: ApiAuthContext, incidentId: string, input: CreateActionRequest, correlationId: string) => Promise<unknown>;
   logger?: boolean;
 };
 
@@ -71,6 +72,18 @@ export async function buildApp(dependencies: ApiDependencies) {
     }
 
     return { items: await dependencies.listIncidents(context, parsed.data) };
+  });
+
+  app.post<{ Params: { incidentId: string } }>("/v1/incidents/:incidentId/actions", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!context.roles.includes("responder") && !context.roles.includes("incident-commander")) {
+      return reply.code(403).send({ error: "insufficient_role" });
+    }
+    const parsed = createActionRequestSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_action_request" });
+    const action = await dependencies.createActionRequest(context, request.params.incidentId, parsed.data, request.id);
+    return reply.code(201).send(action);
   });
 
   app.post<{ Params: { integrationId: string } }>(
