@@ -1,0 +1,32 @@
+{{- if .Values.ingress.enabled }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: aegis
+  labels: { app.kubernetes.io/name: aegis }
+  annotations:
+    alb.ingress.kubernetes.io/scheme: internet-facing
+    alb.ingress.kubernetes.io/target-type: ip
+    {{- if .Values.ingress.certificateArn }}
+    alb.ingress.kubernetes.io/certificate-arn: {{ .Values.ingress.certificateArn | quote }}
+    alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}]'
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /v1
+            pathType: Prefix
+            backend: { service: { name: aegis-api, port: { name: http } } }
+          - path: /health
+            pathType: Prefix
+            backend: { service: { name: aegis-api, port: { name: http } } }
+          - path: /docs
+            pathType: Prefix
+            backend: { service: { name: aegis-api, port: { name: http } } }
+          - path: /
+            pathType: Prefix
+            backend: { service: { name: aegis-web, port: { name: http } } }
+{{- end }}
