@@ -1,6 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
-type OAuthState = { provider: "slack"; organizationId: string; subject: string; expiresAt: number };
+export type OAuthState = { provider: "slack"; organizationId: string; subject: string; expiresAt: number };
 
 function encode(value: OAuthState) { return Buffer.from(JSON.stringify(value)).toString("base64url"); }
 

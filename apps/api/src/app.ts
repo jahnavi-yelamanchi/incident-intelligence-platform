@@ -39,6 +39,8 @@ export type ApiDependencies = {
   listIntegrations?: (context: ApiAuthContext) => Promise<unknown[]>;
   upsertIntegration?: (context: ApiAuthContext, input: IntegrationUpsert, correlationId: string) => Promise<unknown>;
   resolveWebhookIntegration?: (provider: "github" | "slack", connectionId: string) => Promise<WebhookIntegration | null>;
+  beginSlackOAuth?: (context: ApiAuthContext) => Promise<string>;
+  completeSlackOAuth?: (input: { code: string; state: string; correlationId: string }) => Promise<unknown>;
   logger?: boolean;
 };
 
@@ -158,6 +160,20 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = integrationUpsertSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_integration" });
     return reply.code(201).send(await dependencies.upsertIntegration(context, parsed.data, request.id));
+  });
+
+  app.get("/v1/integrations/slack/authorize", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.beginSlackOAuth) return reply.code(503).send({ error: "slack_oauth_unavailable" });
+    return reply.redirect(await dependencies.beginSlackOAuth(context));
+  });
+
+  app.get("/v1/integrations/slack/callback", async (request, reply) => {
+    if (!dependencies.completeSlackOAuth) return reply.code(503).send({ error: "slack_oauth_unavailable" });
+    const query = z.object({ code: z.string().min(1), state: z.string().min(1), error: z.string().optional() }).safeParse(request.query);
+    if (!query.success || query.data.error) return reply.code(400).send({ error: "slack_oauth_denied" });
+    return reply.code(201).send(await dependencies.completeSlackOAuth({ code: query.data.code, state: query.data.state, correlationId: request.id }));
   });
 
   app.post<{ Params: { connectionId: string } }>("/v1/integrations/github/:connectionId/webhook", { config: { rawBody: true, rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {

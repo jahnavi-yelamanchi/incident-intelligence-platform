@@ -8,6 +8,7 @@ import { createOpenAiInvestigationProvider, unavailableInvestigationProvider } f
 import { createTemporalRemediationDispatcher, unavailableRemediationDispatcher } from "./remediation-dispatcher.js";
 import { listIntegrations, upsertIntegration } from "./integrations.js";
 import { resolveWebhookIntegration } from "./webhook-integrations.js";
+import { completeSlackOAuth, slackAuthorizeUrl, type SlackOAuthConfig } from "./slack-oauth.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 
 const config = loadConfig();
@@ -38,6 +39,9 @@ const remediationDispatcher = await createTemporalRemediationDispatcher({
   namespace: config.TEMPORAL_NAMESPACE,
   taskQueue: config.TEMPORAL_TASK_QUEUE,
 }).catch(() => unavailableRemediationDispatcher());
+const slackOAuthConfig: SlackOAuthConfig | null = config.SLACK_CLIENT_ID && config.SLACK_CLIENT_SECRET && config.SLACK_REDIRECT_URI && config.SLACK_SIGNING_SECRET && config.INTEGRATION_OAUTH_STATE_SECRET && config.INTEGRATION_ENCRYPTION_KEY
+  ? { clientId: config.SLACK_CLIENT_ID, clientSecret: config.SLACK_CLIENT_SECRET, redirectUri: config.SLACK_REDIRECT_URI, signingSecret: config.SLACK_SIGNING_SECRET, stateSecret: config.INTEGRATION_OAUTH_STATE_SECRET, encryptionKey: config.INTEGRATION_ENCRYPTION_KEY }
+  : null;
 
 const app = await buildApp({
   corsOrigins: config.CORS_ORIGINS.split(",").map((origin) => origin.trim()),
@@ -67,6 +71,10 @@ const app = await buildApp({
   listIntegrations: (context) => listIntegrations(database, context),
   upsertIntegration: (context, input, correlationId) => upsertIntegration(database, context, input, config.INTEGRATION_ENCRYPTION_KEY, correlationId),
   resolveWebhookIntegration: (provider, connectionId) => resolveWebhookIntegration(database, provider, connectionId, config.INTEGRATION_ENCRYPTION_KEY),
+  ...(slackOAuthConfig ? {
+    beginSlackOAuth: (context: Parameters<typeof slackAuthorizeUrl>[0]) => Promise.resolve(slackAuthorizeUrl(context, slackOAuthConfig)),
+    completeSlackOAuth: (input: { code: string; state: string; correlationId: string }) => completeSlackOAuth(database, input, slackOAuthConfig, input.correlationId),
+  } : {}),
 });
 
 const close = async (signal: string) => {

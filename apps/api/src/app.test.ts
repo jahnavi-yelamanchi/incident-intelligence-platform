@@ -214,4 +214,18 @@ describe("API", () => {
     expect(publishEvents).toHaveBeenCalledOnce();
     await app.close();
   });
+
+  it("redirects authorized users to Slack and completes only valid callback input", async () => {
+    const app = await buildApp({
+      logger: false, corsOrigins: [], getIntegrationCredential: async () => null, publishEvents: async () => undefined,
+      readiness: async () => ({ database: true, redis: true, queue: true }), authenticate: async () => ({ ...context, roles: ["administrator"] }),
+      listIncidents: async () => [], createActionRequest: async () => ({}), decideActionApproval: async () => ({}), cancelActionRequest: async () => ({}), upsertDocument: async () => ({}), searchEvidence: async () => [], generateInvestigation: async () => ({}), listHypotheses: async () => [],
+      beginSlackOAuth: async () => "https://slack.com/oauth/v2/authorize?state=state", completeSlackOAuth: async () => ({ id: "slack-id" }),
+    });
+    const start = await app.inject({ method: "GET", url: "/v1/integrations/slack/authorize", headers: { authorization: "Bearer token" } });
+    expect(start.statusCode).toBe(302);
+    const callback = await app.inject({ method: "GET", url: "/v1/integrations/slack/callback?code=code&state=state" });
+    expect(callback.statusCode).toBe(201);
+    await app.close();
+  });
 });
