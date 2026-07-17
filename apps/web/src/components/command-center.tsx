@@ -36,7 +36,7 @@ const navigation = [
   { label: "Audit", icon: ShieldCheck },
 ];
 
-export function CommandCenter() {
+export function CommandCenter({ userName }: { userName: string }) {
   const [activeId, setActiveId] = useState(incidents[0]!.id);
   const [navCompact, setNavCompact] = useState(false);
   const [hiddenPanels, setHiddenPanels] = useState<PanelKey[]>([]);
@@ -51,7 +51,10 @@ export function CommandCenter() {
 
   useEffect(() => {
     const stored = window.localStorage.getItem("aegis:hidden-panels");
-    if (stored) setHiddenPanels(JSON.parse(stored) as PanelKey[]);
+    if (stored) {
+      const parsed = JSON.parse(stored) as PanelKey[];
+      queueMicrotask(() => setHiddenPanels(parsed));
+    }
   }, []);
 
   useEffect(() => {
@@ -94,7 +97,7 @@ export function CommandCenter() {
         <div className="nav-footer">
           <button className="identity">
             <span className="avatar">AM</span>
-            <span><strong>Alex Morgan</strong><small>SRE · On call</small></span>
+            <span><strong>{userName}</strong><small>SRE · On call</small></span>
           </button>
           <button className="collapse-nav" onClick={() => setNavCompact((value) => !value)} aria-label={navCompact ? "Expand navigation" : "Collapse navigation"}>
             <ChevronsLeft size={18} />
@@ -110,7 +113,7 @@ export function CommandCenter() {
           <button className="environment">US-East-1 <ChevronDown size={14} /></button>
           <button className="icon-action" aria-label="Search"><Search size={18} /></button>
           <button className="icon-action notification" aria-label="Notifications"><Bell size={18} /><i /></button>
-          <button className="profile"><UserRound size={17} /> Alex Morgan <ChevronDown size={13} /></button>
+          <a className="profile" href="/auth/profile"><UserRound size={17} /> {userName} <ChevronDown size={13} /></a>
         </div>
       </header>
 

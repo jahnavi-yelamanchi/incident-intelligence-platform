@@ -62,7 +62,7 @@ button:focus-visible { outline: 2px solid var(--gold); outline-offset: -2px; }
 .live-state > span { width: 7px; height: 7px; border-radius: 50%; background: var(--red); animation: live-pulse 2.4s ease-out infinite; }
 .live-state small { color: var(--ash); font: 400 9px var(--font-mono); text-transform: none; letter-spacing: 0; }
 .top-actions { display: flex; align-items: center; gap: 8px; height: 100%; }
-.environment, .profile, .icon-action { height: 34px; border: 1px solid var(--line); background: transparent; color: var(--smoke); display: flex; align-items: center; justify-content: center; gap: 8px; text-transform: uppercase; font: 500 10px var(--font-display); letter-spacing: .08em; cursor: pointer; }
+.environment, .profile, .icon-action { height: 34px; border: 1px solid var(--line); background: transparent; color: var(--smoke); display: flex; align-items: center; justify-content: center; gap: 8px; text-transform: uppercase; text-decoration: none; font: 500 10px var(--font-display); letter-spacing: .08em; cursor: pointer; }
 .environment { padding: 0 12px; }.profile { border-color: transparent; padding: 0 6px 0 11px; }.icon-action { width: 36px; border-color: transparent; }.notification { position: relative; }.notification i { position: absolute; width: 5px; height: 5px; background: var(--red); border-radius: 50%; top: 8px; right: 7px; }
 
 .incident-rail { grid-area: queue; min-width: 0; border-right: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden; animation: slide-in-left 220ms ease-out both; }
