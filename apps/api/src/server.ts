@@ -3,7 +3,8 @@ import { loadConfig } from "./config.js";
 import { createQueueRuntime } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
 import { createActionRequest, decideActionApproval, listIncidents } from "./incidents.js";
-import { searchEvidence, upsertDocument } from "./investigation.js";
+import { generateInvestigation, searchEvidence, upsertDocument } from "./investigation.js";
+import { createOpenAiInvestigationProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 
 const config = loadConfig();
@@ -26,6 +27,9 @@ const authenticate = isDemoMode
       organizationClaim: "https://incident-intelligence.example/organization_id",
       rolesClaim: "https://incident-intelligence.example/roles",
     });
+const investigationProvider = config.OPENAI_API_KEY
+  ? createOpenAiInvestigationProvider({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_INVESTIGATION_MODEL })
+  : unavailableInvestigationProvider();
 
 const app = await buildApp({
   corsOrigins: config.CORS_ORIGINS.split(",").map((origin) => origin.trim()),
@@ -47,6 +51,8 @@ const app = await buildApp({
     decideActionApproval(database, context, actionRequestId, input, correlationId),
   upsertDocument: (context, input, correlationId) => upsertDocument(database, context, input, correlationId),
   searchEvidence: (context, input) => searchEvidence(database, context, input),
+  generateInvestigation: (context, incidentId, correlationId) =>
+    generateInvestigation(database, context, incidentId, investigationProvider, correlationId),
 });
 
 const close = async (signal: string) => {

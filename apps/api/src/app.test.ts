@@ -30,6 +30,7 @@ describe("API", () => {
       decideActionApproval: async () => ({}),
       upsertDocument: async () => ({}),
       searchEvidence: async () => [],
+      generateInvestigation: async () => ({}),
     });
 
     const payload = JSON.stringify({
@@ -83,6 +84,7 @@ describe("API", () => {
       decideActionApproval: async () => ({}),
       upsertDocument: async () => ({}),
       searchEvidence: async () => [],
+      generateInvestigation: async () => ({}),
     });
 
     const response = await app.inject({ method: "GET", url: "/health/ready" });
@@ -105,6 +107,7 @@ describe("API", () => {
       decideActionApproval: async () => ({}),
       upsertDocument: async () => ({}),
       searchEvidence: async () => [],
+      generateInvestigation: async () => ({}),
     });
 
     const response = await app.inject({
@@ -133,6 +136,7 @@ describe("API", () => {
       decideActionApproval: async () => ({}),
       upsertDocument,
       searchEvidence,
+      generateInvestigation: async () => ({}),
     });
 
     const create = await app.inject({
@@ -145,6 +149,28 @@ describe("API", () => {
     expect(upsertDocument).toHaveBeenCalledWith(context, expect.objectContaining({ externalId: "checkout-v1" }), expect.any(String));
     expect(search.statusCode).toBe(200);
     expect(searchEvidence).toHaveBeenCalledWith(context, { query: "checkout latency", limit: 8 });
+    await app.close();
+  });
+
+  it("starts an investigation with the authenticated tenant and incident identifier", async () => {
+    const generateInvestigation = vi.fn(async () => ({ items: [] }));
+    const app = await buildApp({
+      logger: false,
+      corsOrigins: [],
+      getIntegrationCredential: async () => null,
+      publishEvents: async () => undefined,
+      readiness: async () => ({ database: true, redis: true, queue: true }),
+      authenticate: async () => context,
+      listIncidents: async () => [],
+      createActionRequest: async () => ({}),
+      decideActionApproval: async () => ({}),
+      upsertDocument: async () => ({}),
+      searchEvidence: async () => [],
+      generateInvestigation,
+    });
+    const response = await app.inject({ method: "POST", url: "/v1/incidents/75c56ad8-d17d-4d28-a4e3-66be34d4f18a/investigation" });
+    expect(response.statusCode).toBe(201);
+    expect(generateInvestigation).toHaveBeenCalledWith(context, "75c56ad8-d17d-4d28-a4e3-66be34d4f18a", expect.any(String));
     await app.close();
   });
 });
