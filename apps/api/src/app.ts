@@ -125,6 +125,17 @@ export async function buildApp(dependencies: ApiDependencies) {
     if (!query.success) return reply.code(400).send({ error: "invalid_query" });
     return { items: await dependencies.listAuditEvents(context, query.data) };
   });
+  app.get("/v1/audit-events/export", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.listAuditEvents) return reply.code(503).send({ error: "audit_unavailable" });
+    const query = auditQuerySchema.safeParse(request.query);
+    if (!query.success) return reply.code(400).send({ error: "invalid_query" });
+    const rows = await dependencies.listAuditEvents(context, query.data) as Array<{ id: string; occurredAt: string; actorType: string; actorId: string; action: string; resourceType: string; resourceId: string; correlationId: string; metadata: unknown }>;
+    const quote = (value: unknown) => `"${String(value ?? "").replaceAll("\"", "\"\"")}"`;
+    const csv = ["id,occurred_at,actor_type,actor_id,action,resource_type,resource_id,correlation_id,metadata", ...rows.map((row) => [row.id, row.occurredAt, row.actorType, row.actorId, row.action, row.resourceType, row.resourceId, row.correlationId, JSON.stringify(row.metadata)].map(quote).join(","))].join("\n");
+    return reply.header("content-type", "text/csv; charset=utf-8").header("content-disposition", "attachment; filename=aegis-audit-events.csv").send(csv);
+  });
   app.get("/v1/services/graph", async (request, reply) => {
     const context = await dependencies.authenticate(request.headers.authorization);
     if (!context) return reply.code(401).send({ error: "unauthorized" });
