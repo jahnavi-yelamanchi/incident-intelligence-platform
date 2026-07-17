@@ -263,4 +263,21 @@ describe("API", () => {
     expect(publishEvents).toHaveBeenCalledWith([expect.objectContaining({ organizationId: context.organizationId, source: "opentelemetry", service: "checkout" })], expect.any(String));
     await app.close();
   });
+
+  it("exports audit records only for an authenticated operator context", async () => {
+    const listAuditEvents = vi.fn(async () => [{ id: "audit-1", occurredAt: "2026-07-17T12:00:00.000Z", actorType: "user", actorId: "operator", action: "incident.read", resourceType: "incident", resourceId: "incident-1", correlationId: "correlation-1", metadata: { note: "safe" } }]);
+    const app = await buildApp({
+      logger: false, corsOrigins: [], getIntegrationCredential: async () => null, publishEvents: async () => undefined,
+      readiness: async () => ({ database: true, redis: true, queue: true }), authenticate: async (authorization) => authorization ? { ...context, roles: ["administrator"] } : null,
+      listIncidents: async () => [], createActionRequest: async () => ({}), decideActionApproval: async () => ({}), cancelActionRequest: async () => ({}), upsertDocument: async () => ({}), searchEvidence: async () => [], generateInvestigation: async () => ({}), listHypotheses: async () => [], listAuditEvents,
+    });
+    const denied = await app.inject({ method: "GET", url: "/v1/audit-events/export" });
+    const exported = await app.inject({ method: "GET", url: "/v1/audit-events/export?action=incident.read", headers: { authorization: "Bearer token" } });
+    expect(denied.statusCode).toBe(401);
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers["content-type"]).toContain("text/csv");
+    expect(exported.body).toContain("incident.read");
+    expect(listAuditEvents).toHaveBeenCalledWith(expect.objectContaining({ roles: ["administrator"] }), { action: "incident.read", limit: 100 });
+    await app.close();
+  });
 });
