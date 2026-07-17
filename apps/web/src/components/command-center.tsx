@@ -22,10 +22,10 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { parseHiddenPanels, toggleHiddenPanel, type PanelKey } from "../lib/panel-preferences";
-import { incidents, timeline, type IncidentView } from "./data";
-import { MarkIcon, TrendLine } from "./icons";
+import { type IncidentView } from "./data";
+import { MarkIcon } from "./icons";
 
-type ApprovalState = "idle" | "review" | "submitting" | "submitted";
+type ApprovalState = "idle" | "review" | "submitting" | "submitted" | "failed";
 
 const navigation = [
   { label: "Command center", icon: LayoutDashboard },
@@ -36,18 +36,15 @@ const navigation = [
   { label: "Audit", icon: ShieldCheck },
 ];
 
-export function CommandCenter({ userName }: { userName: string }) {
-  const [activeId, setActiveId] = useState(incidents[0]!.id);
+export function CommandCenter({ userName, initialIncidents }: { userName: string; initialIncidents: IncidentView[] }) {
+  const [activeId, setActiveId] = useState(initialIncidents[0]?.id ?? "");
   const [navCompact, setNavCompact] = useState(false);
   const [hiddenPanels, setHiddenPanels] = useState<PanelKey[]>([]);
   const [viewMenuOpen, setViewMenuOpen] = useState(false);
   const [approval, setApproval] = useState<ApprovalState>("idle");
   const [liveTick, setLiveTick] = useState(0);
 
-  const active = useMemo(
-    () => incidents.find((incident) => incident.id === activeId) ?? incidents[0]!,
-    [activeId],
-  );
+  const active = useMemo(() => initialIncidents.find((incident) => incident.id === activeId) ?? initialIncidents[0], [activeId, initialIncidents]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("aegis:hidden-panels");
@@ -67,13 +64,29 @@ export function CommandCenter({ userName }: { userName: string }) {
     });
   }
 
-  function submitApproval() {
+  async function submitApproval() {
+    const incident = active;
+    if (!incident) return;
     setApproval("submitting");
-    window.setTimeout(() => setApproval("submitted"), 1150);
+    try {
+      const response = await fetch("/api/demo/approval", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ incidentId: incident.id, service: incident.service, environment: incident.environment }),
+      });
+      if (!response.ok) throw new Error("Approval request was rejected.");
+      setApproval("submitted");
+    } catch {
+      setApproval("failed");
+    }
   }
 
   const incidentsHidden = hiddenPanels.includes("incidents");
   const investigationHidden = hiddenPanels.includes("investigation");
+
+  if (!active) {
+    return <main className="app-shell"><section className="workspace"><div className="incident-heading"><h1>No incidents yet</h1><p>Incoming signed alerts will appear here as they are correlated.</p></div></section></main>;
+  }
 
   return (
     <main className={`app-shell ${navCompact ? "nav-compact" : ""} ${incidentsHidden ? "incidents-hidden" : ""} ${investigationHidden ? "investigation-hidden" : ""}`}>
@@ -114,31 +127,31 @@ export function CommandCenter({ userName }: { userName: string }) {
         </div>
       </header>
 
-      {!incidentsHidden && <IncidentRail active={active} onSelect={setActiveId} onClose={() => togglePanel("incidents")} />}
+      {!incidentsHidden && <IncidentRail incidents={initialIncidents} active={active} onSelect={setActiveId} onClose={() => togglePanel("incidents")} />}
 
       <section className="workspace">
         <div className="incident-heading">
           <div className="heading-line"><span>{active.reference}</span><h1>{active.title}</h1><Severity value={active.severity} /></div>
           <div className="incident-meta">
             <Meta label="Service" value={active.service} />
-            <Meta label="Owner" value={active.owner} live />
+            <Meta label="Owner" value={active.ownerName ?? "Unassigned"} live />
             <Meta label="Status" value={active.status} />
           </div>
         </div>
 
         <section className="signal-section" aria-labelledby="latency-heading">
-          <div className="section-title"><div><span id="latency-heading">Latency (P95)</span><strong>{active.latency} <small>↑ {active.increase}</small></strong></div><time>Last 1 hour</time></div>
-          <div className="chart-wrap"><TrendLine /><div className="chart-axis"><span>13:32</span><span>13:42</span><span>13:52</span><span>14:02</span><span>14:12</span><span>14:22</span><span>14:32</span></div></div>
+          <div className="section-title"><div><span id="latency-heading">Live evidence</span><strong>{active.timeline.length} events</strong></div><time>Started {relativeTime(active.startedAt)}</time></div>
+          <div className="chart-wrap evidence-summary"><strong>{active.service}</strong><span>{active.environment} · last updated {relativeTime(active.updatedAt)}</span></div>
         </section>
 
         <section className="timeline" aria-labelledby="timeline-heading">
           <div className="section-bar"><h2 id="timeline-heading">Event timeline</h2><button>All events <ChevronDown size={13} /></button></div>
           <ol>
-            {timeline.map((event, index) => (
-              <li key={`${event.time}-${event.title}`} style={{ "--delay": `${index * 45}ms` } as React.CSSProperties}>
-                <time>{event.time}</time>
-                <span className={`event-dot ${event.kind}`}>{event.kind === "success" ? <Check size={12} /> : event.kind === "info" ? "i" : "!"}</span>
-                <div><strong>{event.title}</strong><small>{event.detail}</small></div>
+            {active.timeline.map((event, index) => (
+              <li key={`${event.occurredAt}-${event.title}`} style={{ "--delay": `${index * 45}ms` } as React.CSSProperties}>
+                <time>{new Date(event.occurredAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time>
+                <span className={`event-dot ${eventKind(event.type)}`}>{eventKind(event.type) === "success" ? <Check size={12} /> : eventKind(event.type) === "info" ? "i" : "!"}</span>
+                <div><strong>{event.title}</strong><small>{event.detail ?? "Evidence received"}</small></div>
               </li>
             ))}
           </ol>
@@ -169,24 +182,24 @@ export function CommandCenter({ userName }: { userName: string }) {
       </footer>
 
       {approval !== "idle" && (
-        <ApprovalDialog state={approval} onClose={() => setApproval("idle")} onSubmit={submitApproval} />
+        <ApprovalDialog incident={active} state={approval} onClose={() => setApproval("idle")} onSubmit={submitApproval} />
       )}
     </main>
   );
 }
 
-function IncidentRail({ active, onSelect, onClose }: { active: IncidentView; onSelect: (id: string) => void; onClose: () => void }) {
+function IncidentRail({ incidents, active, onSelect, onClose }: { incidents: IncidentView[]; active: IncidentView; onSelect: (id: string) => void; onClose: () => void }) {
   return (
     <aside className="incident-rail">
       <div className="rail-title"><h2>Incidents</h2><button onClick={onClose} aria-label="Hide incident queue"><ChevronLeft size={17} /></button></div>
       <div className="incident-list">
         {incidents.map((incident) => (
           <button className={incident.id === active.id ? "selected" : ""} key={incident.id} onClick={() => onSelect(incident.id)}>
-            <strong>{incident.title}</strong><span>{incident.service}</span><div><Severity value={incident.severity} /><time>{incident.elapsed}</time></div>
+            <strong>{incident.title}</strong><span>{incident.service}</span><div><Severity value={incident.severity} /><time>{relativeTime(incident.startedAt)}</time></div>
           </button>
         ))}
       </div>
-      <div className="rail-count">Showing 1–5 of 5</div>
+      <div className="rail-count">Showing {incidents.length} incidents</div>
     </aside>
   );
 }
@@ -197,36 +210,36 @@ function InvestigationPanel({ onClose }: { onClose: () => void }) {
       <div className="rail-title"><h2>Investigation</h2><button onClick={onClose} aria-label="Hide investigation"><ChevronRight size={17} /></button></div>
       <section className="hypothesis">
         <span>Top hypothesis</span>
-        <h3>Database connection pool exhaustion</h3>
-        <p>Connection wait time increased immediately after the latest deployment.</p>
-        <div className="confidence"><span>Confidence</span><strong>71%</strong><i><b /></i></div>
+        <h3>Investigation ready for evidence</h3>
+        <p>Runbook retrieval and cited hypotheses appear here when generated for this incident.</p>
       </section>
       <section className="evidence-list">
         <span>Evidence</span>
-        <button><Activity size={18} /><span><strong>Metric graph</strong><small>P95 latency · 14:31:20</small></span><ChevronRight size={16} /></button>
-        <button><FileCode2 size={18} /><span><strong>Log excerpt</strong><small>checkout-api · 14:31:18</small></span><ChevronRight size={16} /></button>
+        <button><Activity size={18} /><span><strong>Live incident evidence</strong><small>Available from the timeline</small></span><ChevronRight size={16} /></button>
+        <button><FileCode2 size={18} /><span><strong>Runbook retrieval</strong><small>Connect documents to enable</small></span><ChevronRight size={16} /></button>
       </section>
       <section className="recommendation">
         <span>Recommended action</span>
-        <p>Increase <strong>checkout-api</strong> database connection pool max size from 50 to 150.</p>
+        <p>Recommendations are generated only after evidence retrieval has supporting citations.</p>
         <button>Inspect action <ChevronRight size={16} /></button>
       </section>
     </aside>
   );
 }
 
-function ApprovalDialog({ state, onClose, onSubmit }: { state: ApprovalState; onClose: () => void; onSubmit: () => void }) {
+function ApprovalDialog({ incident, state, onClose, onSubmit }: { incident: IncidentView; state: ApprovalState; onClose: () => void; onSubmit: () => Promise<void> }) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="approval-dialog" role="dialog" aria-modal="true" aria-labelledby="approval-title">
         {state === "submitted" ? (
-          <div className="approval-success"><span><Check size={28} /></span><h2 id="approval-title">Approval requested</h2><p>Two production approvers were notified. This action expires in 15 minutes.</p><button onClick={onClose}>Return to incident</button></div>
+          <div className="approval-success"><span><Check size={28} /></span><h2 id="approval-title">Approval requested</h2><p>One independent production approver was notified. This action expires in 15 minutes.</p><button onClick={onClose}>Return to incident</button></div>
         ) : (
           <>
             <header><div><span>Human approval gate</span><h2 id="approval-title">Review remediation</h2></div><button onClick={onClose} aria-label="Close"><X size={19} /></button></header>
-            <div className="approval-details"><div><span>Action</span><strong>Scale database connection pool</strong></div><div><span>Target</span><strong>checkout-api / production</strong></div><div><span>Change</span><strong>50 → 150 connections</strong></div><div><span>Risk</span><strong>Low · automatic rollback</strong></div></div>
-            <div className="policy-pass"><ShieldCheck size={19} /><span><strong>Policy checks passed</strong><small>Requires 2 Production Approver confirmations</small></span></div>
-            <footer><button className="secondary" onClick={onClose}>Cancel</button><button className="confirm" onClick={onSubmit} disabled={state === "submitting"}>{state === "submitting" ? <><span className="spinner" /> Sending request</> : <>Send for approval <ChevronRight size={17} /></>}</button></footer>
+            <div className="approval-details"><div><span>Action</span><strong>Scale Kubernetes workload</strong></div><div><span>Target</span><strong>{incident.service} / {incident.environment}</strong></div><div><span>Change</span><strong>Scale to 3 replicas</strong></div><div><span>Risk</span><strong>Availability-affecting · preflight required</strong></div></div>
+            <div className="policy-pass"><ShieldCheck size={19} /><span><strong>Policy checks passed</strong><small>Requires 1 independent Production Approver confirmation</small></span></div>
+            {state === "failed" && <p className="approval-error">Could not create the approval request. Start the local API with `DEMO_MODE=true`.</p>}
+            <footer><button className="secondary" onClick={onClose}>Cancel</button><button className="confirm" onClick={() => void onSubmit()} disabled={state === "submitting"}>{state === "submitting" ? <><span className="spinner" /> Sending request</> : <>Send for approval <ChevronRight size={17} /></>}</button></footer>
           </>
         )}
       </section>
@@ -236,3 +249,5 @@ function ApprovalDialog({ state, onClose, onSubmit }: { state: ApprovalState; on
 
 function Severity({ value }: { value: IncidentView["severity"] }) { return <span className={`severity ${value}`}>{value}</span>; }
 function Meta({ label, value, live }: { label: string; value: string; live?: boolean }) { return <div className="meta"><span>{label}</span><strong>{value}{live ? <i /> : null}</strong></div>; }
+function relativeTime(value: string) { const minutes = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 60_000)); return minutes < 60 ? `${minutes}m ago` : `${Math.floor(minutes / 60)}h ${minutes % 60}m ago`; }
+function eventKind(type: string) { return type === "alert" ? "critical" : type === "deployment" ? "success" : "info"; }

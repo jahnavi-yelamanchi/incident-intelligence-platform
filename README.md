@@ -46,3 +46,16 @@ pnpm build
 ```
 
 Operational credentials must never be committed. Production workloads receive short-lived AWS credentials through IRSA and Kubernetes permissions through dedicated service accounts.
+
+## Live local demo
+
+Use separate terminals after starting Docker and applying migrations:
+
+```bash
+DEMO_MODE=true pnpm --filter @incident/workers demo:seed
+DEMO_MODE=true pnpm --filter @incident/api dev
+DATABASE_URL=postgresql://incident_app:incident_app@localhost:5432/incident pnpm --filter @incident/workers dev
+DEMO_MODE=true API_BASE_URL=http://localhost:4000 pnpm --filter @incident/web dev
+```
+
+The demo token is accepted only when the API runs in development with `DEMO_MODE=true`. The console reads and selects real records from PostgreSQL; production continues to require verified Auth0 access tokens.
