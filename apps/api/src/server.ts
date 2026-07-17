@@ -6,13 +6,14 @@ import { cancelActionRequest, createActionRequest, decideActionApproval, listInc
 import { generateInvestigation, listHypotheses, searchEvidence, upsertDocument } from "./investigation.js";
 import { createOpenAiInvestigationProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
 import { createTemporalRemediationDispatcher, unavailableRemediationDispatcher } from "./remediation-dispatcher.js";
-import { listIntegrations, upsertIntegration } from "./integrations.js";
+import { getIntegrationCredentials, listIntegrations, upsertIntegration } from "./integrations.js";
 import { resolveWebhookIntegration } from "./webhook-integrations.js";
 import { completeSlackOAuth, slackAuthorizeUrl, type SlackOAuthConfig } from "./slack-oauth.js";
 import { RealtimeHub } from "./realtime.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 import { processSlackEvent } from "./slack-events.js";
 import { createOpaPolicyEvaluator, developmentPolicyEvaluator } from "./policy.js";
+import { createInstallationToken, fetchRepositoryMarkdown } from "./github-app.js";
 
 const config = loadConfig();
 const queues = createQueueRuntime(config.REDIS_URL);
@@ -49,6 +50,7 @@ const remediationDispatcher = await createTemporalRemediationDispatcher({
 const slackOAuthConfig: SlackOAuthConfig | null = config.SLACK_CLIENT_ID && config.SLACK_CLIENT_SECRET && config.SLACK_REDIRECT_URI && config.SLACK_SIGNING_SECRET && config.INTEGRATION_OAUTH_STATE_SECRET && config.INTEGRATION_ENCRYPTION_KEY
   ? { clientId: config.SLACK_CLIENT_ID, clientSecret: config.SLACK_CLIENT_SECRET, redirectUri: config.SLACK_REDIRECT_URI, signingSecret: config.SLACK_SIGNING_SECRET, stateSecret: config.INTEGRATION_OAUTH_STATE_SECRET, encryptionKey: config.INTEGRATION_ENCRYPTION_KEY }
   : null;
+const githubAppConfig = config.GITHUB_APP_ID && config.GITHUB_APP_PRIVATE_KEY ? { appId: config.GITHUB_APP_ID, privateKey: config.GITHUB_APP_PRIVATE_KEY } : null;
 
 const app = await buildApp({
   corsOrigins: config.CORS_ORIGINS.split(",").map((origin) => origin.trim()),
@@ -83,6 +85,18 @@ const app = await buildApp({
     completeSlackOAuth: (input: { code: string; state: string; correlationId: string }) => completeSlackOAuth(database, input, slackOAuthConfig, input.correlationId),
   } : {}),
   processSlackEvent: (organizationId, body, correlationId) => processSlackEvent(database, organizationId, body, correlationId),
+  ...(githubAppConfig ? {
+    syncGitHubDocuments: async (context, connectionId, correlationId) => {
+      const connection = await getIntegrationCredentials(database, context, connectionId, "github", config.INTEGRATION_ENCRYPTION_KEY);
+      const installationId = typeof connection.credentials.installationId === "string" ? connection.credentials.installationId : null;
+      const repository = typeof connection.credentials.repository === "string" ? connection.credentials.repository : null;
+      if (!installationId || !repository) throw Object.assign(new Error("GitHub connection requires installationId and repository credentials."), { statusCode: 400 });
+      const token = await createInstallationToken(githubAppConfig, installationId);
+      const files = await fetchRepositoryMarkdown(token.token, repository);
+      for (const file of files) await upsertDocument(database, context, { kind: "github_document", externalId: `${repository}:${file.path}`, title: `${repository}/${file.path}`, content: file.content, sourceUrl: `https://github.com/${repository}/blob/main/${file.path}`, accessControl: {} }, correlationId);
+      return { synced: files.length };
+    },
+  } : {}),
   realtimeHub,
   publishRealtime: async (organizationId, type, payload) => {
     await realtimeRelay.publish({ organizationId, type, payload });

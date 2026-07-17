@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { encryptIntegrationCredentials } from "./security/integration-credentials.js";
 import type { OAuthState } from "./security/oauth-state.js";
+import { decryptIntegrationCredentials } from "./security/integration-credentials.js";
 
 export const integrationUpsertSchema = z.object({
   provider: z.enum(["github", "slack"]),
@@ -54,6 +55,16 @@ export async function upsertIntegration(
       data: { organizationId: context.organizationId, actorType: "user", actorId: context.subject, action: "integration.connection_upserted", resourceType: "integration_connection", resourceId: integration.id, correlationId, metadata: { provider: input.provider, externalId: input.externalId } },
     });
     return { id: integration.id, provider: integration.provider, externalId: integration.externalId, status: integration.status, updatedAt: integration.updatedAt.toISOString() };
+  });
+}
+
+export async function getIntegrationCredentials(database: DatabaseClient, context: ApiAuthContext, connectionId: string, provider: "github" | "slack", encryptionKey: string | undefined) {
+  if (!canManageIntegrations(context)) throw Object.assign(new Error("Administrator role required."), { statusCode: 403 });
+  if (!encryptionKey) throw Object.assign(new Error("Integration encryption is not configured."), { statusCode: 503 });
+  return withTenant(database, context.organizationId, async (transaction) => {
+    const connection = await transaction.integrationConnection.findFirst({ where: { id: connectionId, provider } });
+    if (!connection || connection.status !== "active") throw Object.assign(new Error("Integration connection not found."), { statusCode: 404 });
+    return { credentials: decryptIntegrationCredentials(connection.encryptedCredentials, encryptionKey), metadata: connection.metadata };
   });
 }
 

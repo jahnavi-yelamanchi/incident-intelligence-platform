@@ -45,6 +45,7 @@ export type ApiDependencies = {
   beginSlackOAuth?: (context: ApiAuthContext) => Promise<string>;
   completeSlackOAuth?: (input: { code: string; state: string; correlationId: string }) => Promise<unknown>;
   processSlackEvent?: (organizationId: string, body: unknown, correlationId: string) => Promise<SlackInboundResult>;
+  syncGitHubDocuments?: (context: ApiAuthContext, connectionId: string, correlationId: string) => Promise<{ synced: number }>;
   realtimeHub?: RealtimeHub;
   publishRealtime?: (organizationId: string, type: string, payload: unknown) => Promise<void>;
   logger?: boolean;
@@ -195,6 +196,13 @@ export async function buildApp(dependencies: ApiDependencies) {
     if (!context) return reply.code(401).send({ error: "unauthorized" });
     if (!dependencies.beginSlackOAuth) return reply.code(503).send({ error: "slack_oauth_unavailable" });
     return reply.redirect(await dependencies.beginSlackOAuth(context));
+  });
+
+  app.post<{ Params: { connectionId: string } }>("/v1/integrations/github/:connectionId/sync", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.syncGitHubDocuments) return reply.code(503).send({ error: "github_app_unavailable" });
+    return reply.code(202).send(await dependencies.syncGitHubDocuments(context, request.params.connectionId, request.id));
   });
 
   app.get("/v1/integrations/slack/callback", async (request, reply) => {
