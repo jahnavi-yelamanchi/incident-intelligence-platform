@@ -18,7 +18,7 @@ export type IntegrationCredential = {
 export type ApiDependencies = {
   corsOrigins: string[];
   getIntegrationCredential: (integrationId: string) => Promise<IntegrationCredential | null>;
-  publishEvents: (events: NormalizedEvent[]) => Promise<void>;
+  publishEvents: (events: NormalizedEvent[], correlationId: string) => Promise<void>;
   readiness: () => Promise<{ database: boolean; redis: boolean; queue: boolean }>;
   logger?: boolean;
 };
@@ -102,7 +102,7 @@ export async function buildApp(dependencies: ApiDependencies) {
       }
 
       const events = normalizeAlertmanagerWebhook(parsed.data, credential.organizationId);
-      await dependencies.publishEvents(events);
+      await dependencies.publishEvents(events, request.id);
       return reply.code(202).send({ accepted: true, eventCount: events.length });
     },
   );

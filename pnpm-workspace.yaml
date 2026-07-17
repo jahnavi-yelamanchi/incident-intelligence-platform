@@ -5,6 +5,7 @@ allowBuilds:
   '@prisma/engines': true
   '@swc/core': true
   esbuild: true
+  msgpackr-extract: true
   prisma: true
   protobufjs: true
   sharp: true

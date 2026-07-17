@@ -1,10 +1,13 @@
 import { createHmac } from "node:crypto";
+import type { NormalizedEvent } from "@incident/contracts";
 import { describe, expect, it, vi } from "vitest";
 import { buildApp } from "./app.js";
 
 describe("API", () => {
   it("accepts a signed Alertmanager webhook and publishes normalized events", async () => {
-    const publishEvents = vi.fn(async () => undefined);
+    const publishEvents = vi.fn<
+      (events: NormalizedEvent[], correlationId: string) => Promise<void>
+    >(async () => undefined);
     const app = await buildApp({
       logger: false,
       corsOrigins: ["http://localhost:3000"],
@@ -51,6 +54,7 @@ describe("API", () => {
     expect(response.statusCode).toBe(202);
     expect(response.json()).toEqual({ accepted: true, eventCount: 1 });
     expect(publishEvents).toHaveBeenCalledOnce();
+    expect(publishEvents.mock.calls[0]?.[1]).toBeTypeOf("string");
     await app.close();
   });
 
