@@ -6,6 +6,7 @@ import swaggerUi from "@fastify/swagger-ui";
 import { alertmanagerWebhookSchema, documentUpsertSchema, evidenceSearchSchema, type DocumentUpsert, type EvidenceSearch, type NormalizedEvent } from "@incident/contracts";
 import Fastify, { LogController } from "fastify";
 import rawBody from "fastify-raw-body";
+import { z } from "zod";
 import { normalizeAlertmanagerWebhook } from "./ingestion/normalize-alertmanager.js";
 import { approvalDecisionSchema, createActionRequestSchema, listIncidentsQuerySchema, type ApprovalDecision, type CreateActionRequest, type ListIncidentsQuery } from "./incidents.js";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
@@ -26,6 +27,7 @@ export type ApiDependencies = {
   listIncidents: (context: ApiAuthContext, query: ListIncidentsQuery) => Promise<unknown[]>;
   createActionRequest: (context: ApiAuthContext, incidentId: string, input: CreateActionRequest, correlationId: string) => Promise<unknown>;
   decideActionApproval: (context: ApiAuthContext, actionRequestId: string, input: ApprovalDecision, correlationId: string) => Promise<unknown>;
+  cancelActionRequest: (context: ApiAuthContext, actionRequestId: string, reason: string, correlationId: string) => Promise<unknown>;
   upsertDocument: (context: ApiAuthContext, input: DocumentUpsert, correlationId: string) => Promise<unknown>;
   searchEvidence: (context: ApiAuthContext, input: EvidenceSearch) => Promise<unknown[]>;
   generateInvestigation: (context: ApiAuthContext, incidentId: string, correlationId: string) => Promise<unknown>;
@@ -96,6 +98,14 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = approvalDecisionSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_approval" });
     return reply.send(await dependencies.decideActionApproval(context, request.params.actionRequestId, parsed.data, request.id));
+  });
+
+  app.post<{ Params: { actionRequestId: string } }>("/v1/actions/:actionRequestId/cancel", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    const body = z.object({ reason: z.string().min(3).max(1_000) }).safeParse(request.body);
+    if (!body.success) return reply.code(400).send({ error: "invalid_cancellation" });
+    return reply.send(await dependencies.cancelActionRequest(context, request.params.actionRequestId, body.data.reason, request.id));
   });
 
   app.post("/v1/documents", async (request, reply) => {

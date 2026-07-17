@@ -12,6 +12,9 @@ const configSchema = z.object({
   AUTH0_AUDIENCE: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_INVESTIGATION_MODEL: z.string().min(1).default("gpt-5.6"),
+  TEMPORAL_ADDRESS: z.string().min(1).default("localhost:7233"),
+  TEMPORAL_NAMESPACE: z.string().min(1).default("default"),
+  TEMPORAL_TASK_QUEUE: z.string().min(1).default("remediation-v1"),
   DEMO_MODE: z.enum(["true", "false"]).default("false"),
   DEMO_ORGANIZATION_ID: z.string().uuid().default("00000000-0000-4000-8000-000000000001"),
 });

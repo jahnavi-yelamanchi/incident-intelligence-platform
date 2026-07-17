@@ -21,6 +21,8 @@
     "@incident/database": "workspace:*",
     "@incident/investigation": "workspace:*",
     "@incident/queues": "workspace:*",
+    "@incident/workflows": "workspace:*",
+    "@temporalio/client": "latest",
     "fastify": "latest",
     "fastify-raw-body": "latest",
     "jose": "latest",

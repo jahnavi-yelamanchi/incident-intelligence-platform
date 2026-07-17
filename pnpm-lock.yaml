@@ -47,6 +47,12 @@ importers:
       '@incident/queues':
         specifier: workspace:*
         version: link:../../packages/queues
+      '@incident/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
+      '@temporalio/client':
+        specifier: latest
+        version: 1.20.3
       fastify:
         specifier: latest
         version: 5.10.0

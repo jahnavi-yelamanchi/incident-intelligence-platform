@@ -21,7 +21,14 @@ export async function POST(request: Request) {
     headers: { "content-type": "application/json", authorization: "Bearer aegis-demo" },
     body: JSON.stringify({
       actionType: "kubernetes.scale",
-      target: { service: body.service, environment: body.environment },
+      target: {
+        service: body.service,
+        environment: body.environment,
+        cluster: "demo-cluster",
+        namespace: "operations-demo",
+        resourceKind: "Deployment",
+        resourceName: body.service.toLowerCase().replace(/\s+/g, "-"),
+      },
       parameters: { replicas: 3 },
       reason: "Restore capacity while the incident is under investigation.",
     }),
