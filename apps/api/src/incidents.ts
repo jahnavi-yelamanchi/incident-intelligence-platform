@@ -1,4 +1,4 @@
-import { type DatabaseClient, withTenant } from "@incident/database";
+import { Prisma, type DatabaseClient, withTenant } from "@incident/database";
 import { z } from "zod";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import type { RemediationDispatcher } from "./remediation-dispatcher.js";
@@ -11,7 +11,7 @@ export const listIncidentsQuerySchema = z.object({
 export type ListIncidentsQuery = z.infer<typeof listIncidentsQuerySchema>;
 
 export const createActionRequestSchema = z.object({
-  actionType: z.literal("kubernetes.scale"),
+  actionType: z.enum(["kubernetes.restart", "kubernetes.scale", "kubernetes.pause-rollout", "kubernetes.resume-rollout", "kubernetes.rollback"]),
   target: z.object({
     service: z.string().min(1),
     environment: z.string().min(1),
@@ -20,7 +20,7 @@ export const createActionRequestSchema = z.object({
     resourceKind: z.enum(["Deployment", "StatefulSet"]),
     resourceName: z.string().min(1).max(253),
   }),
-  parameters: z.object({ replicas: z.number().int().min(1).max(100) }),
+  parameters: z.record(z.string(), z.unknown()),
   reason: z.string().min(10).max(1_000),
 });
 
@@ -109,8 +109,8 @@ export async function createActionRequest(
         incidentId: incident.id,
         requestedById: requester.id,
         actionType: input.actionType,
-        target: input.target,
-        parameters: input.parameters,
+        target: input.target as Prisma.InputJsonValue,
+        parameters: input.parameters as Prisma.InputJsonValue,
         reason: input.reason,
         riskSummary: "Availability-affecting change; verified by an independent production approver.",
         policySnapshot: { requiredApprovals: 1, selfApprovalAllowed: false, dryRunRequired: true },
@@ -137,7 +137,7 @@ export async function createActionRequest(
   try {
     await dispatcher.start({
       actionRequestId: created.request.id,
-      actionType: created.request.actionType as "kubernetes.scale",
+      actionType: created.request.actionType as "kubernetes.restart" | "kubernetes.scale" | "kubernetes.pause-rollout" | "kubernetes.resume-rollout" | "kubernetes.rollback",
       target: {
         organizationId: context.organizationId,
         incidentId,

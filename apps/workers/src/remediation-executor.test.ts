@@ -17,6 +17,9 @@ function client(overrides: Partial<KubernetesWorkloadClient> = {}): KubernetesWo
     readStatefulSet: vi.fn(async () => ({ spec: { replicas: 2 }, status: { availableReplicas: 2 } }) as unknown as V1StatefulSet),
     scaleDeployment: vi.fn(async (_name, _namespace, replicas) => { deploymentReplicas = replicas; }),
     scaleStatefulSet: vi.fn(async () => undefined),
+    patchDeployment: vi.fn(async () => undefined),
+    patchStatefulSet: vi.fn(async () => undefined),
+    listReplicaSets: vi.fn(async () => []),
     ...overrides,
   };
 }
@@ -40,5 +43,18 @@ describe("KubernetesScaleExecutor", () => {
     await expect(executor.verify({ ...input, execution })).resolves.toMatchObject({ healthy: true });
     await executor.compensate({ ...input, execution });
     expect(kubernetes.scaleDeployment).toHaveBeenLastCalledWith("checkout-api", "checkout", 2);
+  });
+
+  it("pauses only Deployments and restores their prior pause state on compensation", async () => {
+    const kubernetes = client();
+    const executor = new KubernetesScaleExecutor(kubernetes, "prod-us-east-1");
+    const pause = { ...input, actionType: "kubernetes.pause-rollout" as const, parameters: {} };
+    const preflight = await executor.runPreflight(pause);
+    expect(preflight.safe).toBe(true);
+    const execution = await executor.execute({ ...pause, preflight });
+    expect(kubernetes.patchDeployment).toHaveBeenCalledWith("checkout-api", "checkout", { spec: { paused: true } });
+    await executor.compensate({ ...pause, execution });
+    expect(kubernetes.patchDeployment).toHaveBeenLastCalledWith("checkout-api", "checkout", { spec: { paused: false } });
+    await expect(executor.runPreflight({ ...pause, target: { ...pause.target, resourceKind: "StatefulSet" } })).resolves.toMatchObject({ safe: false });
   });
 });
