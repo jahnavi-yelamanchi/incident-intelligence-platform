@@ -246,4 +246,21 @@ describe("API", () => {
     expect(processSlackEvent).toHaveBeenCalledWith(context.organizationId, expect.objectContaining({ type: "url_verification" }), expect.any(String));
     await app.close();
   });
+
+  it("accepts a signed tenant-scoped generic operational event", async () => {
+    const publishEvents = vi.fn(async () => undefined);
+    const app = await buildApp({
+      logger: false, corsOrigins: [], getIntegrationCredential: async () => null, publishEvents,
+      readiness: async () => ({ database: true, redis: true, queue: true }), authenticate: async () => null,
+      listIncidents: async () => [], createActionRequest: async () => ({}), decideActionApproval: async () => ({}), cancelActionRequest: async () => ({}), upsertDocument: async () => ({}), searchEvidence: async () => [], generateInvestigation: async () => ({}), listHypotheses: async () => [],
+      resolveWebhookIntegration: async () => ({ organizationId: context.organizationId, secret: "event-secret", enabled: true }),
+    });
+    const payload = JSON.stringify({ source: "opentelemetry", sourceEventId: "trace-99", service: "checkout", environment: "production", severity: "high", title: "Trace error rate elevated", status: "firing", occurredAt: "2026-07-17T12:00:00.000Z" });
+    const timestamp = String(Math.floor(Date.now() / 1_000));
+    const signature = `sha256=${createHmac("sha256", "event-secret").update(`${timestamp}.${payload}`).digest("hex")}`;
+    const response = await app.inject({ method: "POST", url: "/v1/ingest/events/75c56ad8-d17d-4d28-a4e3-66be34d4f18a", headers: { "content-type": "application/json", "x-webhook-timestamp": timestamp, "x-webhook-signature": signature }, payload });
+    expect(response.statusCode).toBe(202);
+    expect(publishEvents).toHaveBeenCalledWith([expect.objectContaining({ organizationId: context.organizationId, source: "opentelemetry", service: "checkout" })], expect.any(String));
+    await app.close();
+  });
 });
