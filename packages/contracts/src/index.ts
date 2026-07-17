@@ -63,6 +63,56 @@ export const actionRequestSchema = z.object({
   expiresAt: z.string().datetime(),
 });
 
+export const normalizedEventSourceSchema = z.enum([
+  "prometheus",
+  "generic_webhook",
+  "opentelemetry",
+  "github",
+  "kubernetes",
+]);
+
+export const normalizedEventSchema = z.object({
+  id: z.string().uuid(),
+  organizationId: z.string().uuid(),
+  source: normalizedEventSourceSchema,
+  sourceEventId: z.string().min(1).max(512),
+  fingerprint: z.string().min(16).max(256),
+  service: z.string().min(1).max(120),
+  environment: z.string().min(1).max(80),
+  severity: severitySchema,
+  title: z.string().min(1).max(240),
+  description: z.string().max(10_000).default(""),
+  status: z.enum(["firing", "resolved"]),
+  occurredAt: z.string().datetime(),
+  receivedAt: z.string().datetime(),
+  attributes: z.record(z.string(), z.string()),
+  rawPayload: z.record(z.string(), z.unknown()),
+});
+
+export const alertmanagerAlertSchema = z.object({
+  status: z.enum(["firing", "resolved"]),
+  labels: z.record(z.string(), z.string()),
+  annotations: z.record(z.string(), z.string()).default({}),
+  startsAt: z.string().datetime(),
+  endsAt: z.string().datetime().optional(),
+  generatorURL: z.string().url().optional(),
+  fingerprint: z.string().min(1),
+});
+
+export const alertmanagerWebhookSchema = z.object({
+  version: z.string().min(1),
+  groupKey: z.string().min(1),
+  status: z.enum(["firing", "resolved"]),
+  receiver: z.string().min(1),
+  groupLabels: z.record(z.string(), z.string()).default({}),
+  commonLabels: z.record(z.string(), z.string()).default({}),
+  commonAnnotations: z.record(z.string(), z.string()).default({}),
+  externalURL: z.string().url().optional(),
+  alerts: z.array(alertmanagerAlertSchema).min(1).max(1000),
+});
+
 export type Incident = z.infer<typeof incidentSchema>;
 export type Hypothesis = z.infer<typeof hypothesisSchema>;
 export type ActionRequest = z.infer<typeof actionRequestSchema>;
+export type NormalizedEvent = z.infer<typeof normalizedEventSchema>;
+export type AlertmanagerWebhook = z.infer<typeof alertmanagerWebhookSchema>;
