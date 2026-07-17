@@ -21,10 +21,10 @@ import {
   X,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
+import { parseHiddenPanels, toggleHiddenPanel, type PanelKey } from "../lib/panel-preferences";
 import { incidents, timeline, type IncidentView } from "./data";
 import { MarkIcon, TrendLine } from "./icons";
 
-type PanelKey = "incidents" | "investigation";
 type ApprovalState = "idle" | "review" | "submitting" | "submitted";
 
 const navigation = [
@@ -51,10 +51,7 @@ export function CommandCenter({ userName }: { userName: string }) {
 
   useEffect(() => {
     const stored = window.localStorage.getItem("aegis:hidden-panels");
-    if (stored) {
-      const parsed = JSON.parse(stored) as PanelKey[];
-      queueMicrotask(() => setHiddenPanels(parsed));
-    }
+    queueMicrotask(() => setHiddenPanels(parseHiddenPanels(stored)));
   }, []);
 
   useEffect(() => {
@@ -64,7 +61,7 @@ export function CommandCenter({ userName }: { userName: string }) {
 
   function togglePanel(panel: PanelKey) {
     setHiddenPanels((current) => {
-      const next = current.includes(panel) ? current.filter((item) => item !== panel) : [...current, panel];
+      const next = toggleHiddenPanel(current, panel);
       window.localStorage.setItem("aegis:hidden-panels", JSON.stringify(next));
       return next;
     });
