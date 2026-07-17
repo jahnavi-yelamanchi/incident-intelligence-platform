@@ -1,4 +1,4 @@
-export type RemediationTarget = {
+export type KubernetesRemediationTarget = {
   organizationId: string;
   incidentId: string;
   environment: string;
@@ -7,6 +7,17 @@ export type RemediationTarget = {
   resourceKind: "Deployment" | "StatefulSet";
   resourceName: string;
 };
+
+export type AwsRdsRemediationTarget = {
+  organizationId: string;
+  incidentId: string;
+  environment: string;
+  region: string;
+  dbClusterIdentifier: string;
+  targetDbInstanceIdentifier?: string;
+};
+
+export type RemediationTarget = KubernetesRemediationTarget | AwsRdsRemediationTarget;
 
 export type RemediationInput = {
   actionRequestId: string;
@@ -70,4 +81,3 @@ export type VerificationResult = {
   healthy: boolean;
   checks: Array<{ name: string; passed: boolean; detail: string }>;
 };
-

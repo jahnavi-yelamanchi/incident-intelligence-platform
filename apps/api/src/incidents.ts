@@ -10,19 +10,24 @@ export const listIncidentsQuerySchema = z.object({
 
 export type ListIncidentsQuery = z.infer<typeof listIncidentsQuerySchema>;
 
-export const createActionRequestSchema = z.object({
-  actionType: z.enum(["kubernetes.restart", "kubernetes.scale", "kubernetes.pause-rollout", "kubernetes.resume-rollout", "kubernetes.rollback"]),
-  target: z.object({
+const kubernetesTargetSchema = z.object({
     service: z.string().min(1),
     environment: z.string().min(1),
     cluster: z.string().min(1).max(160),
     namespace: z.string().min(1).max(253),
     resourceKind: z.enum(["Deployment", "StatefulSet"]),
     resourceName: z.string().min(1).max(253),
-  }),
-  parameters: z.record(z.string(), z.unknown()),
-  reason: z.string().min(10).max(1_000),
 });
+const awsRdsTargetSchema = z.object({
+  environment: z.string().min(1),
+  region: z.string().regex(/^[a-z]{2}(?:-gov)?-[a-z]+-\d$/),
+  dbClusterIdentifier: z.string().min(1).max(63).regex(/^[a-z][a-z0-9-]*$/),
+  targetDbInstanceIdentifier: z.string().min(1).max(63).regex(/^[a-z][a-z0-9-]*$/).optional(),
+});
+export const createActionRequestSchema = z.discriminatedUnion("actionType", [
+  z.object({ actionType: z.enum(["kubernetes.restart", "kubernetes.scale", "kubernetes.pause-rollout", "kubernetes.resume-rollout", "kubernetes.rollback"]), target: kubernetesTargetSchema, parameters: z.record(z.string(), z.unknown()), reason: z.string().min(10).max(1_000) }),
+  z.object({ actionType: z.literal("aws.rds.failover"), target: awsRdsTargetSchema, parameters: z.object({}).strict(), reason: z.string().min(10).max(1_000) }),
+]);
 
 export type CreateActionRequest = z.infer<typeof createActionRequestSchema>;
 
@@ -137,16 +142,8 @@ export async function createActionRequest(
   try {
     await dispatcher.start({
       actionRequestId: created.request.id,
-      actionType: created.request.actionType as "kubernetes.restart" | "kubernetes.scale" | "kubernetes.pause-rollout" | "kubernetes.resume-rollout" | "kubernetes.rollback",
-      target: {
-        organizationId: context.organizationId,
-        incidentId,
-        environment: input.target.environment,
-        cluster: input.target.cluster,
-        namespace: input.target.namespace,
-        resourceKind: input.target.resourceKind,
-        resourceName: input.target.resourceName,
-      },
+      actionType: created.request.actionType as "kubernetes.restart" | "kubernetes.scale" | "kubernetes.pause-rollout" | "kubernetes.resume-rollout" | "kubernetes.rollback" | "aws.rds.failover",
+      target: toWorkflowTarget(input.target, context.organizationId, incidentId),
       parameters: input.parameters,
       requestedBy: created.requesterSubject,
       requiredApprovals: created.request.requiredApprovals,
@@ -223,7 +220,7 @@ export async function decideActionApproval(
     });
     return { updated, approver, approvalCount: approvals.length };
   });
-  const target = createdTargetFromAction(result.updated.target, context.organizationId, result.updated.incidentId);
+  const target = createdTargetFromAction(result.updated.target, result.updated.actionType, context.organizationId, result.updated.incidentId);
   await dispatcher.submitApproval({ actionRequestId: result.updated.id, target }, {
     approverId: result.approver.auth0Subject,
     roles: context.roles,
@@ -256,11 +253,16 @@ export async function cancelActionRequest(
     });
     return updated;
   });
-  await dispatcher.cancel({ actionRequestId: action.id, target: createdTargetFromAction(action.target, context.organizationId, action.incidentId) }, { actorId: context.subject, reason });
+  await dispatcher.cancel({ actionRequestId: action.id, target: createdTargetFromAction(action.target, action.actionType, context.organizationId, action.incidentId) }, { actorId: context.subject, reason });
   return { id: action.id, status: action.status };
 }
 
-function createdTargetFromAction(value: unknown, organizationId: string, incidentId: string) {
-  const target = createActionRequestSchema.shape.target.parse(value);
-  return { organizationId, incidentId, environment: target.environment, cluster: target.cluster, namespace: target.namespace, resourceKind: target.resourceKind, resourceName: target.resourceName };
+function toWorkflowTarget(target: CreateActionRequest["target"], organizationId: string, incidentId: string) {
+  return "dbClusterIdentifier" in target
+    ? { organizationId, incidentId, environment: target.environment, region: target.region, dbClusterIdentifier: target.dbClusterIdentifier, ...(target.targetDbInstanceIdentifier ? { targetDbInstanceIdentifier: target.targetDbInstanceIdentifier } : {}) }
+    : { organizationId, incidentId, environment: target.environment, cluster: target.cluster, namespace: target.namespace, resourceKind: target.resourceKind, resourceName: target.resourceName };
+}
+
+function createdTargetFromAction(value: unknown, actionType: string, organizationId: string, incidentId: string) {
+  return toWorkflowTarget(actionType === "aws.rds.failover" ? awsRdsTargetSchema.parse(value) : kubernetesTargetSchema.parse(value), organizationId, incidentId);
 }

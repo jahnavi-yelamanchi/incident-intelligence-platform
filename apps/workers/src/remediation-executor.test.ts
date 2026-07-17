@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { V1Deployment, V1StatefulSet } from "@kubernetes/client-node";
-import { KubernetesScaleExecutor, type KubernetesWorkloadClient } from "./remediation-executor.js";
+import { KubernetesScaleExecutor, RdsFailoverExecutor, type KubernetesWorkloadClient, type RdsClientAdapter } from "./remediation-executor.js";
 
 const input = {
   actionRequestId: "action-1",
@@ -56,5 +56,17 @@ describe("KubernetesScaleExecutor", () => {
     await executor.compensate({ ...pause, execution });
     expect(kubernetes.patchDeployment).toHaveBeenLastCalledWith("checkout-api", "checkout", { spec: { paused: false } });
     await expect(executor.runPreflight({ ...pause, target: { ...pause.target, resourceKind: "StatefulSet" } })).resolves.toMatchObject({ safe: false });
+  });
+
+  it("allows RDS failover only for an inspected available cluster in an allowed region", async () => {
+    const rds: RdsClientAdapter = { describeCluster: vi.fn(async () => ({ status: "available", writer: "writer-1", members: ["writer-1", "reader-1"] })), failoverCluster: vi.fn(async () => undefined) };
+    const executor = new RdsFailoverExecutor(() => rds, new Set(["us-east-1"]));
+    const rdsInput = { ...input, actionType: "aws.rds.failover" as const, target: { organizationId: "org", incidentId: "incident", environment: "production", region: "us-east-1", dbClusterIdentifier: "checkout-db", targetDbInstanceIdentifier: "reader-1" }, parameters: {} };
+    const preflight = await executor.runPreflight(rdsInput);
+    expect(preflight.safe).toBe(true);
+    const execution = await executor.execute({ ...rdsInput, preflight });
+    expect(rds.failoverCluster).toHaveBeenCalledWith("checkout-db", "reader-1");
+    await expect(executor.verify({ ...rdsInput, execution })).resolves.toMatchObject({ healthy: false });
+    await expect(executor.runPreflight({ ...rdsInput, target: { ...rdsInput.target, region: "eu-west-1" } })).resolves.toMatchObject({ safe: false });
   });
 });

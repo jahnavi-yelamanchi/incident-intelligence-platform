@@ -12,6 +12,8 @@ const workerConfigSchema = z.object({
   TEMPORAL_TASK_QUEUE: z.string().min(1).default("remediation-v1"),
   KUBERNETES_ENABLED: z.enum(["true", "false"]).default("false"),
   KUBERNETES_ALLOWED_CLUSTER: z.string().min(1).optional(),
+  AWS_RDS_FAILOVER_ENABLED: z.enum(["true", "false"]).default("false"),
+  AWS_RDS_ALLOWED_REGIONS: z.string().default(""),
 });
 
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;
