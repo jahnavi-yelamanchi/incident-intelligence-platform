@@ -177,6 +177,25 @@ resource "aws_s3_bucket_versioning" "evidence" {
   }
 }
 
+resource "aws_s3_bucket_lifecycle_configuration" "evidence" {
+  bucket = aws_s3_bucket.evidence.id
+
+  rule {
+    id     = "retain-operational-evidence"
+    status = "Enabled"
+    filter {}
+
+    noncurrent_version_expiration {
+      noncurrent_days = 365
+    }
+
+    transition {
+      days          = 90
+      storage_class = "STANDARD_IA"
+    }
+  }
+}
+
 resource "aws_sqs_queue" "dead_letter" {
   name                      = "${local.name}-dead-letter"
   kms_master_key_id         = aws_kms_key.platform.id
