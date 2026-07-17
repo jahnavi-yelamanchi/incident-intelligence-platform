@@ -2,7 +2,7 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createQueueRuntime } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
-import { createActionRequest, listIncidents } from "./incidents.js";
+import { createActionRequest, decideActionApproval, listIncidents } from "./incidents.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 
 const config = loadConfig();
@@ -16,6 +16,8 @@ const authenticate = isDemoMode
   ? async (authorization: string | undefined) =>
       authorization === "Bearer aegis-demo"
         ? { subject: "demo-operator", organizationId: config.DEMO_ORGANIZATION_ID, roles: ["responder", "production-approver"] }
+        : authorization === "Bearer aegis-demo-approver"
+          ? { subject: "demo-approver", organizationId: config.DEMO_ORGANIZATION_ID, roles: ["production-approver"] }
         : null
   : createAuth0AccessTokenVerifier({
       issuer: config.AUTH0_ISSUER_BASE_URL!,
@@ -40,6 +42,8 @@ const app = await buildApp({
   listIncidents: (context, query) => listIncidents(database, context, query),
   createActionRequest: (context, incidentId, input, correlationId) =>
     createActionRequest(database, context, incidentId, input, correlationId),
+  decideActionApproval: (context, actionRequestId, input, correlationId) =>
+    decideActionApproval(database, context, actionRequestId, input, correlationId),
 });
 
 const close = async (signal: string) => {

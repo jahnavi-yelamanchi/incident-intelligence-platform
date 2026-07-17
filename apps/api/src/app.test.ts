@@ -27,6 +27,7 @@ describe("API", () => {
       authenticate: async () => context,
       listIncidents: async () => [],
       createActionRequest: async () => ({}),
+      decideActionApproval: async () => ({}),
     });
 
     const payload = JSON.stringify({
@@ -77,6 +78,7 @@ describe("API", () => {
       authenticate: async () => null,
       listIncidents: async () => [],
       createActionRequest: async () => ({}),
+      decideActionApproval: async () => ({}),
     });
 
     const response = await app.inject({ method: "GET", url: "/health/ready" });
@@ -96,6 +98,7 @@ describe("API", () => {
       authenticate: async (authorization) => (authorization ? context : null),
       listIncidents,
       createActionRequest: async () => ({}),
+      decideActionApproval: async () => ({}),
     });
 
     const response = await app.inject({

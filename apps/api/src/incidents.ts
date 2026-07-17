@@ -18,6 +18,13 @@ export const createActionRequestSchema = z.object({
 
 export type CreateActionRequest = z.infer<typeof createActionRequestSchema>;
 
+export const approvalDecisionSchema = z.object({
+  decision: z.enum(["approved", "rejected"]),
+  comment: z.string().max(1_000).optional(),
+});
+
+export type ApprovalDecision = z.infer<typeof approvalDecisionSchema>;
+
 export async function listIncidents(
   database: DatabaseClient,
   context: ApiAuthContext,
@@ -117,5 +124,60 @@ export async function createActionRequest(
       },
     });
     return { id: request.id, status: request.status, expiresAt: request.expiresAt.toISOString() };
+  });
+}
+
+export async function decideActionApproval(
+  database: DatabaseClient,
+  context: ApiAuthContext,
+  actionRequestId: string,
+  input: ApprovalDecision,
+  correlationId: string,
+) {
+  return withTenant(database, context.organizationId, async (transaction) => {
+    if (!context.roles.includes("production-approver")) {
+      throw Object.assign(new Error("Production approver role required."), { statusCode: 403 });
+    }
+    const [action, approver] = await Promise.all([
+      transaction.actionRequest.findUnique({ where: { id: actionRequestId } }),
+      transaction.user.findUnique({
+        where: { organizationId_auth0Subject: { organizationId: context.organizationId, auth0Subject: context.subject } },
+      }),
+    ]);
+    if (!action || !approver) throw Object.assign(new Error("Action request not found."), { statusCode: 404 });
+    if (action.requestedById === approver.id) throw Object.assign(new Error("Self-approval is prohibited."), { statusCode: 403 });
+    if (action.status !== "pending") throw Object.assign(new Error("Action request is not awaiting approval."), { statusCode: 409 });
+    if (action.expiresAt <= new Date()) {
+      await transaction.actionRequest.update({ where: { id: action.id }, data: { status: "expired" } });
+      throw Object.assign(new Error("Action request has expired."), { statusCode: 409 });
+    }
+
+    await transaction.approval.upsert({
+      where: { actionRequestId_approverId: { actionRequestId: action.id, approverId: approver.id } },
+      update: { decision: input.decision, comment: input.comment ?? null, decidedAt: new Date() },
+      create: {
+        organizationId: context.organizationId,
+        actionRequestId: action.id,
+        approverId: approver.id,
+        decision: input.decision,
+        comment: input.comment ?? null,
+      },
+    });
+    const approvals = await transaction.approval.findMany({ where: { actionRequestId: action.id, decision: "approved" } });
+    const nextStatus = input.decision === "rejected" ? "rejected" : approvals.length >= action.requiredApprovals ? "approved" : "pending";
+    const updated = await transaction.actionRequest.update({ where: { id: action.id }, data: { status: nextStatus } });
+    await transaction.auditEvent.create({
+      data: {
+        organizationId: context.organizationId,
+        actorType: "user",
+        actorId: context.subject,
+        action: `action_request.${input.decision}`,
+        resourceType: "action_request",
+        resourceId: action.id,
+        correlationId,
+        metadata: { requiredApprovals: action.requiredApprovals, approvalCount: approvals.length, status: nextStatus },
+      },
+    });
+    return { id: updated.id, status: updated.status, approvalCount: approvals.length };
   });
 }

@@ -7,7 +7,7 @@ import { alertmanagerWebhookSchema, type NormalizedEvent } from "@incident/contr
 import Fastify, { LogController } from "fastify";
 import rawBody from "fastify-raw-body";
 import { normalizeAlertmanagerWebhook } from "./ingestion/normalize-alertmanager.js";
-import { createActionRequestSchema, listIncidentsQuerySchema, type CreateActionRequest, type ListIncidentsQuery } from "./incidents.js";
+import { approvalDecisionSchema, createActionRequestSchema, listIncidentsQuerySchema, type ApprovalDecision, type CreateActionRequest, type ListIncidentsQuery } from "./incidents.js";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { verifyWebhookSignature } from "./security/webhook-signature.js";
 
@@ -25,6 +25,7 @@ export type ApiDependencies = {
   authenticate: (authorization: string | undefined) => Promise<ApiAuthContext | null>;
   listIncidents: (context: ApiAuthContext, query: ListIncidentsQuery) => Promise<unknown[]>;
   createActionRequest: (context: ApiAuthContext, incidentId: string, input: CreateActionRequest, correlationId: string) => Promise<unknown>;
+  decideActionApproval: (context: ApiAuthContext, actionRequestId: string, input: ApprovalDecision, correlationId: string) => Promise<unknown>;
   logger?: boolean;
 };
 
@@ -84,6 +85,14 @@ export async function buildApp(dependencies: ApiDependencies) {
     if (!parsed.success) return reply.code(400).send({ error: "invalid_action_request" });
     const action = await dependencies.createActionRequest(context, request.params.incidentId, parsed.data, request.id);
     return reply.code(201).send(action);
+  });
+
+  app.post<{ Params: { actionRequestId: string } }>("/v1/actions/:actionRequestId/approval", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = approvalDecisionSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_approval" });
+    return reply.send(await dependencies.decideActionApproval(context, request.params.actionRequestId, parsed.data, request.id));
   });
 
   app.post<{ Params: { integrationId: string } }>(

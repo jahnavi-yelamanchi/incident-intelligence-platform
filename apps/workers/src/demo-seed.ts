@@ -28,6 +28,17 @@ async function main() {
         roles: ["responder", "production-approver"],
       },
     });
+    await transaction.user.upsert({
+      where: { organizationId_auth0Subject: { organizationId, auth0Subject: "demo-approver" } },
+      update: { roles: ["production-approver"] },
+      create: {
+        organizationId,
+        auth0Subject: "demo-approver",
+        email: "approver@aegis.demo",
+        displayName: "Mina Park",
+        roles: ["production-approver"],
+      },
+    });
 
     for (const [index, item] of seed.entries()) {
       const service = await transaction.service.upsert({
