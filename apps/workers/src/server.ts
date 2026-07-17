@@ -1,6 +1,7 @@
 import { createDatabaseClient } from "@incident/database";
 import {
   createQueueRuntime,
+  createRealtimeRelay,
   createWorkerConnection,
   queueEnvelopeSchema,
   queueNames,
@@ -21,6 +22,8 @@ const config = loadWorkerConfig();
 const logger = pino({ level: config.LOG_LEVEL });
 const database = createDatabaseClient(config.DATABASE_URL);
 const queues = createQueueRuntime(config.REDIS_URL);
+const realtimeRelay = createRealtimeRelay(config.REDIS_URL, () => {});
+await realtimeRelay.start();
 const ingestionConnection = createWorkerConnection(config.REDIS_URL);
 const correlationConnection = createWorkerConnection(config.REDIS_URL);
 const kubernetesExecutor = config.KUBERNETES_ENABLED === "true"
@@ -62,6 +65,7 @@ const correlationWorker = new Worker<CorrelationReference>(
   queueNames.correlation,
   async (job) => {
     const event = await correlateOperationalEvent(database, job.data, config.CORRELATION_WINDOW_MINUTES);
+    if (event?.incidentId) await realtimeRelay.publish({ organizationId: job.data.organizationId, type: "incident.changed", payload: { incidentId: event.incidentId } });
     return { eventId: event?.id ?? job.data.eventId, incidentId: event?.incidentId ?? null };
   },
   { connection: correlationConnection, concurrency: config.CORRELATION_CONCURRENCY },
@@ -105,6 +109,7 @@ const close = async (signal: string) => {
   await Promise.all([ingestionWorker.close(), correlationWorker.close(), remediationWorker.shutdown()]);
   await temporalConnection.close();
   await queues.close();
+  await realtimeRelay.close();
   await Promise.all([ingestionConnection.quit(), correlationConnection.quit()]);
   await database.$disconnect();
 };

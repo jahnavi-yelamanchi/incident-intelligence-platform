@@ -77,6 +77,12 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
             setIncidents(message.payload.items);
             setActiveId((current) => current || message.payload!.items![0]?.id || "");
           }
+          if (message.type === "incident.changed") {
+            const apiUrl = realtimeUrl.replace(/^ws/, "http").replace(/\/v1\/realtime$/, "/v1/incidents");
+            void fetch(apiUrl, { headers: { authorization: `Bearer ${realtimeToken}` } })
+              .then((response) => response.ok ? response.json() as Promise<{ items: IncidentView[] }> : null)
+              .then((payload) => { if (payload?.items) setIncidents(payload.items); });
+          }
         } catch { /* malformed messages are ignored and never affect the active incident */ }
       };
       socket.onclose = () => { if (!closed) reconnect = window.setTimeout(connect, 2_000); };
