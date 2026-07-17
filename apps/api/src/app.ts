@@ -82,6 +82,8 @@ export async function buildApp(dependencies: ApiDependencies) {
     const remove = dependencies.realtimeHub.add(context.organizationId, socket);
     socket.on("close", remove);
     socket.send(JSON.stringify({ type: "realtime.connected", payload: { organizationId: context.organizationId }, occurredAt: new Date().toISOString() }));
+    const incidents = await dependencies.listIncidents(context, { limit: 25 });
+    socket.send(JSON.stringify({ type: "incident.snapshot", payload: { items: incidents }, occurredAt: new Date().toISOString() }));
   });
   app.get("/health/ready", { config: { rateLimit: false } }, async (_request, reply) => {
     const checks = await dependencies.readiness();
