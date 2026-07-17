@@ -46,6 +46,7 @@ export type ApiDependencies = {
   completeSlackOAuth?: (input: { code: string; state: string; correlationId: string }) => Promise<unknown>;
   processSlackEvent?: (organizationId: string, body: unknown, correlationId: string) => Promise<SlackInboundResult>;
   realtimeHub?: RealtimeHub;
+  publishRealtime?: (organizationId: string, type: string, payload: unknown) => Promise<void>;
   logger?: boolean;
 };
 
@@ -73,6 +74,10 @@ export async function buildApp(dependencies: ApiDependencies) {
     },
   });
   await app.register(swaggerUi, { routePrefix: "/docs" });
+  const publishRealtime = async (organizationId: string, type: string, payload: unknown) => {
+    if (dependencies.publishRealtime) return dependencies.publishRealtime(organizationId, type, payload);
+    dependencies.realtimeHub?.publish(organizationId, type, payload);
+  };
 
   app.get("/health/live", { config: { rateLimit: false } }, async () => ({ status: "ok" }));
 
@@ -117,7 +122,7 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = createActionRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_action_request" });
     const action = await dependencies.createActionRequest(context, request.params.incidentId, parsed.data, request.id);
-    dependencies.realtimeHub?.publish(context.organizationId, "action.requested", action);
+    await publishRealtime(context.organizationId, "action.requested", action);
     return reply.code(201).send(action);
   });
 
@@ -127,7 +132,7 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = approvalDecisionSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_approval" });
     const decision = await dependencies.decideActionApproval(context, request.params.actionRequestId, parsed.data, request.id);
-    dependencies.realtimeHub?.publish(context.organizationId, "action.approval_decided", decision);
+    await publishRealtime(context.organizationId, "action.approval_decided", decision);
     return reply.send(decision);
   });
 
@@ -137,7 +142,7 @@ export async function buildApp(dependencies: ApiDependencies) {
     const body = z.object({ reason: z.string().min(3).max(1_000) }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_cancellation" });
     const cancelled = await dependencies.cancelActionRequest(context, request.params.actionRequestId, body.data.reason, request.id);
-    dependencies.realtimeHub?.publish(context.organizationId, "action.cancelled", cancelled);
+    await publishRealtime(context.organizationId, "action.cancelled", cancelled);
     return reply.send(cancelled);
   });
 

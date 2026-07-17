@@ -1,6 +1,6 @@
 import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
-import { createQueueRuntime } from "@incident/queues";
+import { createQueueRuntime, createRealtimeRelay } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
 import { cancelActionRequest, createActionRequest, decideActionApproval, listIncidents } from "./incidents.js";
 import { generateInvestigation, listHypotheses, searchEvidence, upsertDocument } from "./investigation.js";
@@ -37,6 +37,8 @@ const investigationProvider = config.OPENAI_API_KEY
   ? createOpenAiInvestigationProvider({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_INVESTIGATION_MODEL })
   : unavailableInvestigationProvider();
 const realtimeHub = new RealtimeHub();
+const realtimeRelay = createRealtimeRelay(config.REDIS_URL, (message) => realtimeHub.publish(message.organizationId, message.type, message.payload));
+await realtimeRelay.start();
 const remediationDispatcher = await createTemporalRemediationDispatcher({
   address: config.TEMPORAL_ADDRESS,
   namespace: config.TEMPORAL_NAMESPACE,
@@ -80,12 +82,16 @@ const app = await buildApp({
   } : {}),
   processSlackEvent: (organizationId, body, correlationId) => processSlackEvent(database, organizationId, body, correlationId),
   realtimeHub,
+  publishRealtime: async (organizationId, type, payload) => {
+    await realtimeRelay.publish({ organizationId, type, payload });
+  },
 });
 
 const close = async (signal: string) => {
   app.log.info({ signal }, "shutting down");
   await app.close();
   await queues.close();
+  await realtimeRelay.close();
   await database.$disconnect();
   process.exit(0);
 };

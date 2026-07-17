@@ -39,6 +39,41 @@ export const deadLetterSchema = z.object({
 export type CorrelationReference = z.infer<typeof correlationReferenceSchema>;
 export type DeadLetter = z.infer<typeof deadLetterSchema>;
 
+export const realtimeEnvelopeSchema = z.object({
+  organizationId: z.string().uuid(),
+  type: z.string().min(1).max(128),
+  payload: z.unknown(),
+});
+
+export type RealtimeEnvelope = z.infer<typeof realtimeEnvelopeSchema>;
+const realtimeChannel = "aegis:realtime:v1";
+
+export function createRealtimeRelay(redisUrl: string, onMessage: (message: RealtimeEnvelope) => void) {
+  const publisher = new Redis(redisUrl, { enableReadyCheck: true, lazyConnect: true, maxRetriesPerRequest: 1 });
+  const subscriber = new Redis(redisUrl, { enableReadyCheck: true, lazyConnect: true, maxRetriesPerRequest: null });
+  subscriber.on("message", (channel, payload) => {
+    if (channel !== realtimeChannel) return;
+    try {
+      const parsed = realtimeEnvelopeSchema.safeParse(JSON.parse(payload));
+      if (parsed.success) onMessage(parsed.data);
+    } catch {
+      // Ignore malformed pub/sub messages; trusted publishers are schema-validated.
+    }
+  });
+  return {
+    async start() {
+      await subscriber.subscribe(realtimeChannel);
+    },
+    async publish(message: RealtimeEnvelope) {
+      const envelope = realtimeEnvelopeSchema.parse(message);
+      return publisher.publish(realtimeChannel, JSON.stringify(envelope));
+    },
+    async close() {
+      await Promise.all([subscriber.quit(), publisher.quit()]);
+    },
+  };
+}
+
 const defaultJobOptions: JobsOptions = {
   attempts: 5,
   backoff: { type: "exponential", delay: 1_000 },
