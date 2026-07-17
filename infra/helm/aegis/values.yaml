@@ -1,0 +1,26 @@
+imagePullSecrets: []
+serviceAccount:
+  create: true
+  name: aegis
+  annotations: {}
+images:
+  api: { repository: ghcr.io/jahnavi-yelamanchi/incident-intelligence-api, tag: latest, pullPolicy: IfNotPresent }
+  web: { repository: ghcr.io/jahnavi-yelamanchi/incident-intelligence-web, tag: latest, pullPolicy: IfNotPresent }
+  workers: { repository: ghcr.io/jahnavi-yelamanchi/incident-intelligence-workers, tag: latest, pullPolicy: IfNotPresent }
+replicas: { api: 3, web: 3, workers: 2 }
+config:
+  corsOrigins: https://console.example.com
+  temporalAddress: temporal-frontend.temporal.svc.cluster.local:7233
+  temporalNamespace: default
+  temporalTaskQueue: remediation-v1
+secrets:
+  name: aegis-runtime
+resources:
+  api: { requests: { cpu: 250m, memory: 512Mi }, limits: { cpu: 1, memory: 1Gi } }
+  web: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+  workers: { requests: { cpu: 500m, memory: 1Gi }, limits: { cpu: 2, memory: 2Gi } }
+ingress:
+  enabled: true
+  className: alb
+  host: console.example.com
+  certificateArn: ""

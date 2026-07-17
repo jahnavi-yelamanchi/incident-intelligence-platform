@@ -1,0 +1,17 @@
+FROM node:22-bookworm-slim AS base
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/api/package.json apps/api/package.json
+COPY packages/contracts/package.json packages/contracts/package.json
+COPY packages/database/package.json packages/database/package.json
+COPY packages/investigation/package.json packages/investigation/package.json
+COPY packages/queues/package.json packages/queues/package.json
+COPY packages/workflows/package.json packages/workflows/package.json
+RUN pnpm install --frozen-lockfile
+COPY apps apps
+COPY packages packages
+RUN pnpm --filter @incident/database db:generate && pnpm --filter @incident/api build
+USER node
+EXPOSE 4000
+CMD ["pnpm", "--filter", "@incident/api", "exec", "tsx", "src/server.ts"]
