@@ -60,13 +60,14 @@ export async function remediationWorkflow(input: RemediationInput): Promise<Reme
     await activities.publishState(stateEvent(input, state));
     return state;
   }
-  if (cancelled) {
-    state = { ...state, status: "cancelled", message: cancelled.reason };
+  const cancellationAfterPreflight = cancelled as { actorId: string; reason: string } | undefined;
+  if (cancellationAfterPreflight) {
+    state = { ...state, status: "cancelled", message: cancellationAfterPreflight.reason };
     await activities.recordAuditEvent({
       actionRequestId: input.actionRequestId,
       organizationId: input.target.organizationId,
       event: "remediation.cancelled",
-      detail: cancelled,
+      detail: cancellationAfterPreflight,
     });
     await activities.publishState(stateEvent(input, state));
     return state;
@@ -84,6 +85,17 @@ export async function remediationWorkflow(input: RemediationInput): Promise<Reme
   const preflight = await activities.runPreflight(input);
   if (!preflight.safe) {
     state = { ...state, status: "failed", message: preflight.reason ?? "Preflight rejected the action." };
+    await activities.publishState(stateEvent(input, state));
+    return state;
+  }
+  if (cancelled) {
+    state = { ...state, status: "cancelled", message: cancelled.reason };
+    await activities.recordAuditEvent({
+      actionRequestId: input.actionRequestId,
+      organizationId: input.target.organizationId,
+      event: "remediation.cancelled",
+      detail: cancelled,
+    });
     await activities.publishState(stateEvent(input, state));
     return state;
   }

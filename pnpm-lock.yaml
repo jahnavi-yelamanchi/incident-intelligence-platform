@@ -151,6 +151,12 @@ importers:
       '@incident/queues':
         specifier: workspace:*
         version: link:../../packages/queues
+      '@incident/workflows':
+        specifier: workspace:*
+        version: link:../../packages/workflows
+      '@temporalio/worker':
+        specifier: latest
+        version: 1.20.3(tslib@2.8.1)
       bullmq:
         specifier: latest
         version: 5.80.5

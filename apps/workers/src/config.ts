@@ -7,6 +7,9 @@ const workerConfigSchema = z.object({
   INGESTION_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
   CORRELATION_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(5),
   CORRELATION_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1_440).default(60),
+  TEMPORAL_ADDRESS: z.string().min(1).default("localhost:7233"),
+  TEMPORAL_NAMESPACE: z.string().min(1).default("default"),
+  TEMPORAL_TASK_QUEUE: z.string().min(1).default("remediation-v1"),
 });
 
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;
