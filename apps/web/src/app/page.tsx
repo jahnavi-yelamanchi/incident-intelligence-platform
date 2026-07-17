@@ -5,7 +5,7 @@ import { redirect } from "next/navigation";
 
 export default async function Home() {
   if (!isAuthConfigured || !auth0) {
-    return <CommandCenter userName="Alex Morgan" initialIncidents={await loadIncidents("aegis-demo")} />;
+    return <CommandCenter userName="Alex Morgan" initialIncidents={await loadIncidents("aegis-demo")} realtimeToken="aegis-demo" realtimeUrl={realtimeUrl()} />;
   }
 
   const session = await auth0.getSession();
@@ -14,7 +14,12 @@ export default async function Home() {
   const accessToken = await auth0.getAccessToken(
     process.env.AUTH0_AUDIENCE ? { audience: process.env.AUTH0_AUDIENCE } : {},
   );
-  return <CommandCenter userName={session.user.name ?? session.user.email ?? "Operator"} initialIncidents={await loadIncidents(accessToken.token)} />;
+  return <CommandCenter userName={session.user.name ?? session.user.email ?? "Operator"} initialIncidents={await loadIncidents(accessToken.token)} realtimeToken={accessToken.token} realtimeUrl={realtimeUrl()} />;
+}
+
+function realtimeUrl() {
+  const apiBaseUrl = process.env.API_BASE_URL ?? "http://localhost:4000";
+  return `${apiBaseUrl.replace(/^http/, "ws")}/v1/realtime`;
 }
 
 async function loadIncidents(accessToken: string): Promise<IncidentView[]> {

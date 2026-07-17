@@ -37,7 +37,8 @@ const navigation = [
   { label: "Audit", icon: ShieldCheck },
 ];
 
-export function CommandCenter({ userName, initialIncidents }: { userName: string; initialIncidents: IncidentView[] }) {
+export function CommandCenter({ userName, initialIncidents, realtimeToken, realtimeUrl }: { userName: string; initialIncidents: IncidentView[]; realtimeToken: string; realtimeUrl: string }) {
+  const [incidents, setIncidents] = useState(initialIncidents);
   const [activeId, setActiveId] = useState(initialIncidents[0]?.id ?? "");
   const [navCompact, setNavCompact] = useState(false);
   const [hiddenPanels, setHiddenPanels] = useState<PanelKey[]>([]);
@@ -46,7 +47,7 @@ export function CommandCenter({ userName, initialIncidents }: { userName: string
   const [liveTick, setLiveTick] = useState(0);
   const [hypotheses, setHypotheses] = useState<HypothesisView[]>([]);
 
-  const active = useMemo(() => initialIncidents.find((incident) => incident.id === activeId) ?? initialIncidents[0], [activeId, initialIncidents]);
+  const active = useMemo(() => incidents.find((incident) => incident.id === activeId) ?? incidents[0], [activeId, incidents]);
 
   useEffect(() => {
     const stored = window.localStorage.getItem("aegis:hidden-panels");
@@ -62,6 +63,27 @@ export function CommandCenter({ userName, initialIncidents }: { userName: string
       .catch(() => { if (!cancelled) setHypotheses([]); })
     return () => { cancelled = true; };
   }, [activeId]);
+
+  useEffect(() => {
+    let socket: WebSocket | undefined;
+    let reconnect: number | undefined;
+    let closed = false;
+    const connect = () => {
+      socket = new WebSocket(realtimeUrl, [`aegis.${realtimeToken}`]);
+      socket.onmessage = (event) => {
+        try {
+          const message = JSON.parse(String(event.data)) as { type?: string; payload?: { items?: IncidentView[] } };
+          if (message.type === "incident.snapshot" && Array.isArray(message.payload?.items)) {
+            setIncidents(message.payload.items);
+            setActiveId((current) => current || message.payload!.items![0]?.id || "");
+          }
+        } catch { /* malformed messages are ignored and never affect the active incident */ }
+      };
+      socket.onclose = () => { if (!closed) reconnect = window.setTimeout(connect, 2_000); };
+    };
+    connect();
+    return () => { closed = true; if (reconnect) window.clearTimeout(reconnect); socket?.close(); };
+  }, [realtimeToken, realtimeUrl]);
 
   useEffect(() => {
     const interval = window.setInterval(() => setLiveTick((value) => value + 1), 8000);
@@ -139,7 +161,7 @@ export function CommandCenter({ userName, initialIncidents }: { userName: string
         </div>
       </header>
 
-      {!incidentsHidden && <IncidentRail incidents={initialIncidents} active={active} onSelect={setActiveId} onClose={() => togglePanel("incidents")} />}
+      {!incidentsHidden && <IncidentRail incidents={incidents} active={active} onSelect={setActiveId} onClose={() => togglePanel("incidents")} />}
 
       <section className="workspace">
         <div className="incident-heading">
