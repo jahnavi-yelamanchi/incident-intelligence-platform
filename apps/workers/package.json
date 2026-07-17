@@ -13,9 +13,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@aws-sdk/client-rds": "^3.1089.0",
     "@incident/database": "workspace:*",
     "@incident/queues": "workspace:*",
     "@incident/workflows": "workspace:*",
+    "@kubernetes/client-node": "^1.4.0",
     "@temporalio/worker": "latest",
     "bullmq": "latest",
     "pino": "latest",

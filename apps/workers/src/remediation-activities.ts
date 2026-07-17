@@ -1,5 +1,6 @@
 import { ActionStatus, Prisma, type DatabaseClient, withTenant } from "@incident/database";
 import type { RemediationActivities } from "@incident/workflows";
+import type { RemediationExecutor } from "./remediation-executor.js";
 
 const terminalStatuses = new Set(["rejected", "expired", "cancelled", "succeeded", "failed"]);
 
@@ -13,7 +14,7 @@ function databaseStatus(status: string): ActionStatus | null {
  * The concrete Kubernetes/AWS adapter is supplied separately; this bridge is
  * deliberately idempotent because Temporal may retry any activity.
  */
-export function createRemediationActivities(database: DatabaseClient): RemediationActivities {
+export function createRemediationActivities(database: DatabaseClient, executor: RemediationExecutor): RemediationActivities {
   return {
     async recordAuditEvent(input) {
       await withTenant(database, input.organizationId, async (transaction) => {
@@ -56,15 +57,7 @@ export function createRemediationActivities(database: DatabaseClient): Remediati
         });
       });
     },
-    async runPreflight(input) {
-      const invalidTarget = !input.target.cluster || !input.target.namespace || !input.target.resourceName;
-      if (invalidTarget) return { safe: false, observedState: {}, changeSummary: "", reason: "A concrete cluster, namespace, and workload are required." };
-      return {
-        safe: true,
-        observedState: { target: input.target, actionType: input.actionType },
-        changeSummary: `Preflight accepted ${input.actionType} for ${input.target.resourceKind}/${input.target.namespace}/${input.target.resourceName}.`,
-      };
-    },
+    runPreflight: (input) => executor.runPreflight(input),
     async executeAction(input) {
       return withTenant(database, input.target.organizationId, async (transaction) => {
         const existing = await transaction.actionExecution.findUnique({ where: { actionRequestId: input.actionRequestId } });
@@ -76,31 +69,27 @@ export function createRemediationActivities(database: DatabaseClient): Remediati
             output: (existing.result as Record<string, unknown>) ?? {},
           };
         }
-        const result = { changed: false, executor: "not-configured", message: "No production executor has been configured for this action." };
+        const result = await executor.execute(input);
         const execution = await transaction.actionExecution.create({
           data: {
             organizationId: input.target.organizationId,
             actionRequestId: input.actionRequestId,
             executorJobId: `temporal:${input.actionRequestId}`,
             preflight: input.preflight.observedState as Prisma.InputJsonValue,
-            result: result as Prisma.InputJsonValue,
+            result: { changed: result.changed, ...result.output } as Prisma.InputJsonValue,
             startedAt: new Date(),
             finishedAt: new Date(),
           },
         });
         return {
           executionId: execution.id,
-          changed: false,
-          previousState: input.preflight.observedState,
-          output: result,
+          changed: result.changed,
+          previousState: result.previousState,
+          output: result.output,
         };
       });
     },
-    async verifyAction() {
-      return { healthy: false, checks: [{ name: "executor", passed: false, detail: "No production executor was configured." }] };
-    },
-    async compensateAction() {
-      // An unavailable executor never changes state, so compensation is intentionally a no-op.
-    },
+    verifyAction: (input) => executor.verify(input),
+    compensateAction: (input) => executor.compensate(input),
   };
 }

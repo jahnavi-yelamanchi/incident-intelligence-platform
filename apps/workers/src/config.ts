@@ -10,6 +10,8 @@ const workerConfigSchema = z.object({
   TEMPORAL_ADDRESS: z.string().min(1).default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().min(1).default("default"),
   TEMPORAL_TASK_QUEUE: z.string().min(1).default("remediation-v1"),
+  KUBERNETES_ENABLED: z.enum(["true", "false"]).default("false"),
+  KUBERNETES_ALLOWED_CLUSTER: z.string().min(1).optional(),
 });
 
 export type WorkerConfig = z.infer<typeof workerConfigSchema>;

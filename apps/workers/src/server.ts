@@ -15,6 +15,7 @@ import { loadWorkerConfig } from "./config.js";
 import { correlateOperationalEvent } from "./correlation.js";
 import { isTerminalFailure, persistOperationalEvent } from "./ingestion.js";
 import { createRemediationActivities } from "./remediation-activities.js";
+import { createKubernetesWorkloadClient, KubernetesScaleExecutor, UnavailableRemediationExecutor } from "./remediation-executor.js";
 
 const config = loadWorkerConfig();
 const logger = pino({ level: config.LOG_LEVEL });
@@ -22,10 +23,15 @@ const database = createDatabaseClient(config.DATABASE_URL);
 const queues = createQueueRuntime(config.REDIS_URL);
 const ingestionConnection = createWorkerConnection(config.REDIS_URL);
 const correlationConnection = createWorkerConnection(config.REDIS_URL);
+const remediationExecutor = config.KUBERNETES_ENABLED === "true"
+  ? config.KUBERNETES_ALLOWED_CLUSTER
+    ? new KubernetesScaleExecutor(createKubernetesWorkloadClient(), config.KUBERNETES_ALLOWED_CLUSTER)
+    : new UnavailableRemediationExecutor()
+  : new UnavailableRemediationExecutor();
 const temporalConnection = await NativeConnection.connect({ address: config.TEMPORAL_ADDRESS });
 const remediationWorker = await TemporalWorker.create({
   workflowsPath: fileURLToPath(new URL("../../../packages/workflows/src/remediation-workflow.ts", import.meta.url)),
-  activities: createRemediationActivities(database),
+  activities: createRemediationActivities(database, remediationExecutor),
   taskQueue: config.TEMPORAL_TASK_QUEUE,
   namespace: config.TEMPORAL_NAMESPACE,
   connection: temporalConnection,
