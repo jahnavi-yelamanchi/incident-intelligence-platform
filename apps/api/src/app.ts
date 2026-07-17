@@ -11,6 +11,7 @@ import { normalizeAlertmanagerWebhook } from "./ingestion/normalize-alertmanager
 import { approvalDecisionSchema, createActionRequestSchema, listIncidentsQuerySchema, type ApprovalDecision, type CreateActionRequest, type ListIncidentsQuery } from "./incidents.js";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { verifyWebhookSignature } from "./security/webhook-signature.js";
+import { integrationUpsertSchema, type IntegrationUpsert } from "./integrations.js";
 
 export type IntegrationCredential = {
   organizationId: string;
@@ -32,6 +33,8 @@ export type ApiDependencies = {
   searchEvidence: (context: ApiAuthContext, input: EvidenceSearch) => Promise<unknown[]>;
   generateInvestigation: (context: ApiAuthContext, incidentId: string, correlationId: string) => Promise<unknown>;
   listHypotheses: (context: ApiAuthContext, incidentId: string) => Promise<unknown[]>;
+  listIntegrations?: (context: ApiAuthContext) => Promise<unknown[]>;
+  upsertIntegration?: (context: ApiAuthContext, input: IntegrationUpsert, correlationId: string) => Promise<unknown>;
   logger?: boolean;
 };
 
@@ -135,6 +138,22 @@ export async function buildApp(dependencies: ApiDependencies) {
     const context = await dependencies.authenticate(request.headers.authorization);
     if (!context) return reply.code(401).send({ error: "unauthorized" });
     return { items: await dependencies.listHypotheses(context, request.params.incidentId) };
+  });
+
+  app.get("/v1/integrations", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.listIntegrations) return reply.code(503).send({ error: "integrations_unavailable" });
+    return { items: await dependencies.listIntegrations(context) };
+  });
+
+  app.put("/v1/integrations", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.upsertIntegration) return reply.code(503).send({ error: "integrations_unavailable" });
+    const parsed = integrationUpsertSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_integration" });
+    return reply.code(201).send(await dependencies.upsertIntegration(context, parsed.data, request.id));
   });
 
   app.post<{ Params: { integrationId: string } }>(

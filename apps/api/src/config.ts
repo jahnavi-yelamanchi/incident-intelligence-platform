@@ -12,6 +12,7 @@ const configSchema = z.object({
   AUTH0_AUDIENCE: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_INVESTIGATION_MODEL: z.string().min(1).default("gpt-5.6"),
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
   TEMPORAL_ADDRESS: z.string().min(1).default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().min(1).default("default"),
   TEMPORAL_TASK_QUEUE: z.string().min(1).default("remediation-v1"),

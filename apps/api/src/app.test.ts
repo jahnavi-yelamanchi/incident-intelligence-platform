@@ -183,4 +183,19 @@ describe("API", () => {
     expect(generateInvestigation).toHaveBeenCalledWith(context, "75c56ad8-d17d-4d28-a4e3-66be34d4f18a", expect.any(String));
     await app.close();
   });
+
+  it("keeps integration credentials behind an authenticated administrator boundary", async () => {
+    const upsertIntegration = vi.fn(async () => ({ id: "integration-id" }));
+    const app = await buildApp({
+      logger: false, corsOrigins: [], getIntegrationCredential: async () => null, publishEvents: async () => undefined,
+      readiness: async () => ({ database: true, redis: true, queue: true }), authenticate: async () => ({ ...context, roles: ["administrator"] }),
+      listIncidents: async () => [], createActionRequest: async () => ({}), decideActionApproval: async () => ({}), cancelActionRequest: async () => ({}),
+      upsertDocument: async () => ({}), searchEvidence: async () => [], generateInvestigation: async () => ({}), listHypotheses: async () => [],
+      listIntegrations: async () => [], upsertIntegration,
+    });
+    const response = await app.inject({ method: "PUT", url: "/v1/integrations", payload: { provider: "github", externalId: "123", credentials: { webhookSecret: "not-returned" } } });
+    expect(response.statusCode).toBe(201);
+    expect(upsertIntegration).toHaveBeenCalledWith(expect.objectContaining({ roles: ["administrator"] }), expect.objectContaining({ provider: "github" }), expect.any(String));
+    await app.close();
+  });
 });

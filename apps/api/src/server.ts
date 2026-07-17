@@ -6,6 +6,7 @@ import { cancelActionRequest, createActionRequest, decideActionApproval, listInc
 import { generateInvestigation, listHypotheses, searchEvidence, upsertDocument } from "./investigation.js";
 import { createOpenAiInvestigationProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
 import { createTemporalRemediationDispatcher, unavailableRemediationDispatcher } from "./remediation-dispatcher.js";
+import { listIntegrations, upsertIntegration } from "./integrations.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 
 const config = loadConfig();
@@ -62,6 +63,8 @@ const app = await buildApp({
   generateInvestigation: (context, incidentId, correlationId) =>
     generateInvestigation(database, context, incidentId, investigationProvider, correlationId),
   listHypotheses: (context, incidentId) => listHypotheses(database, context, incidentId),
+  listIntegrations: (context) => listIntegrations(database, context),
+  upsertIntegration: (context, input, correlationId) => upsertIntegration(database, context, input, config.INTEGRATION_ENCRYPTION_KEY, correlationId),
 });
 
 const close = async (signal: string) => {
