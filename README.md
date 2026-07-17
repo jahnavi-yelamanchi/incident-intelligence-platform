@@ -34,6 +34,8 @@ Local services:
 
 Auth0 is bypassed only in local development when its variables are absent. Production fails closed. See `docs/security/IDENTITY.md` for token claims and tenant mapping.
 
+Database migrations use the owner-only `MIGRATION_DATABASE_URL`; application processes use the restricted `DATABASE_URL`. Never run the API with the migration owner because PostgreSQL superusers bypass row-level security.
+
 ## Verification
 
 ```bash
