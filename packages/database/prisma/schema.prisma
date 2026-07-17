@@ -59,6 +59,18 @@ enum ApprovalDecision {
   rejected
 }
 
+enum ServiceSource {
+  manual
+  kubernetes
+  github
+  alert
+}
+
+enum ServiceVerificationStatus {
+  unverified
+  verified
+}
+
 model Organization {
   id          String   @id @default(uuid()) @db.Uuid
   auth0Id     String   @unique @map("auth0_id")
@@ -99,18 +111,20 @@ model User {
 }
 
 model Service {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  slug           String
-  displayName    String   @map("display_name")
-  description    String?
-  repositoryUrl  String?  @map("repository_url")
-  runbookUrl     String?  @map("runbook_url")
-  ownerTeam      String   @map("owner_team")
-  environment    String
-  labels         Json     @default("{}")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  id                 String                    @id @default(uuid()) @db.Uuid
+  organizationId     String                    @map("organization_id") @db.Uuid
+  slug               String
+  displayName        String                    @map("display_name")
+  description        String?
+  repositoryUrl      String?                   @map("repository_url")
+  runbookUrl         String?                   @map("runbook_url")
+  ownerTeam          String                    @map("owner_team")
+  environment        String
+  source             ServiceSource             @default(manual)
+  verificationStatus ServiceVerificationStatus @default(verified) @map("verification_status")
+  labels             Json                      @default("{}")
+  createdAt          DateTime                  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   incidents    Incident[]
