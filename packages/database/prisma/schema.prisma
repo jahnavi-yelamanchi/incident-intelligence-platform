@@ -74,6 +74,7 @@ enum ServiceVerificationStatus {
 enum IntegrationProvider {
   github
   slack
+  generic_webhook
 }
 
 enum IntegrationStatus {

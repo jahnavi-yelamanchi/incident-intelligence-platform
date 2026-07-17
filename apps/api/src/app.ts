@@ -14,6 +14,7 @@ import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { verifyWebhookSignature } from "./security/webhook-signature.js";
 import { integrationUpsertSchema, type IntegrationUpsert } from "./integrations.js";
 import { githubDeploymentStatusSchema, normalizeGitHubDeploymentStatus } from "./ingestion/normalize-github.js";
+import { genericEventSchema, normalizeGenericEvent } from "./ingestion/normalize-generic.js";
 import { verifyGitHubSignature, verifySlackSignature } from "./security/integration-signatures.js";
 import type { WebhookIntegration } from "./webhook-integrations.js";
 import { accessTokenFromSocketProtocol, RealtimeHub, type RealtimeSocket } from "./realtime.js";
@@ -41,7 +42,7 @@ export type ApiDependencies = {
   listHypotheses: (context: ApiAuthContext, incidentId: string) => Promise<unknown[]>;
   listIntegrations?: (context: ApiAuthContext) => Promise<unknown[]>;
   upsertIntegration?: (context: ApiAuthContext, input: IntegrationUpsert, correlationId: string) => Promise<unknown>;
-  resolveWebhookIntegration?: (provider: "github" | "slack", connectionId: string) => Promise<WebhookIntegration | null>;
+  resolveWebhookIntegration?: (provider: "github" | "slack" | "generic_webhook", connectionId: string) => Promise<WebhookIntegration | null>;
   beginSlackOAuth?: (context: ApiAuthContext) => Promise<string>;
   completeSlackOAuth?: (input: { code: string; state: string; correlationId: string }) => Promise<unknown>;
   processSlackEvent?: (organizationId: string, body: unknown, correlationId: string) => Promise<SlackInboundResult>;
@@ -233,6 +234,19 @@ export async function buildApp(dependencies: ApiDependencies) {
     const payload = githubDeploymentStatusSchema.safeParse(request.body);
     if (!payload.success) return reply.code(400).send({ error: "invalid_payload" });
     await dependencies.publishEvents([normalizeGitHubDeploymentStatus(payload.data, connection.organizationId)], request.id);
+    return reply.code(202).send({ accepted: true, eventCount: 1 });
+  });
+
+  app.post<{ Params: { connectionId: string } }>("/v1/ingest/events/:connectionId", { config: { rawBody: true, rateLimit: { max: 240, timeWindow: "1 minute" } } }, async (request, reply) => {
+    if (!dependencies.resolveWebhookIntegration) return reply.code(503).send({ error: "integrations_unavailable" });
+    const connection = await dependencies.resolveWebhookIntegration("generic_webhook", request.params.connectionId);
+    if (!connection || !connection.enabled) return reply.code(404).send({ error: "integration_not_found" });
+    const raw = typeof request.rawBody === "string" ? request.rawBody : request.rawBody?.toString("utf8") ?? "";
+    const verified = verifyWebhookSignature({ body: raw, secret: connection.secret, signature: request.headers["x-webhook-signature"] as string | undefined, timestamp: request.headers["x-webhook-timestamp"] as string | undefined });
+    if (!verified.valid) return reply.code(401).send({ error: "invalid_signature" });
+    const parsed = genericEventSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_payload" });
+    await dependencies.publishEvents([normalizeGenericEvent(parsed.data, connection.organizationId)], request.id);
     return reply.code(202).send({ accepted: true, eventCount: 1 });
   });
 

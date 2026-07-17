@@ -6,7 +6,7 @@ import type { OAuthState } from "./security/oauth-state.js";
 import { decryptIntegrationCredentials } from "./security/integration-credentials.js";
 
 export const integrationUpsertSchema = z.object({
-  provider: z.enum(["github", "slack"]),
+  provider: z.enum(["github", "slack", "generic_webhook"]),
   externalId: z.string().min(1).max(255),
   credentials: z.record(z.string(), z.unknown()),
   metadata: z.record(z.string(), z.unknown()).default({}),
@@ -58,7 +58,7 @@ export async function upsertIntegration(
   });
 }
 
-export async function getIntegrationCredentials(database: DatabaseClient, context: ApiAuthContext, connectionId: string, provider: "github" | "slack", encryptionKey: string | undefined) {
+export async function getIntegrationCredentials(database: DatabaseClient, context: ApiAuthContext, connectionId: string, provider: "github" | "slack" | "generic_webhook", encryptionKey: string | undefined) {
   if (!canManageIntegrations(context)) throw Object.assign(new Error("Administrator role required."), { statusCode: 403 });
   if (!encryptionKey) throw Object.assign(new Error("Integration encryption is not configured."), { statusCode: 503 });
   return withTenant(database, context.organizationId, async (transaction) => {
