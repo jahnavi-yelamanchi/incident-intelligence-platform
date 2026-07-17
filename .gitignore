@@ -2,6 +2,7 @@ node_modules
 .next
 .turbo
 dist
+packages/database/generated
 coverage
 playwright-report
 test-results

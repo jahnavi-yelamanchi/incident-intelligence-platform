@@ -1,0 +1,329 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum IncidentSeverity {
+  critical
+  high
+  medium
+  low
+}
+
+enum IncidentStatus {
+  triggered
+  investigating
+  identified
+  monitoring
+  resolved
+}
+
+enum TimelineEventType {
+  alert
+  log
+  trace
+  deployment
+  kubernetes
+  comment
+  ownership
+  action
+  system
+}
+
+enum DocumentKind {
+  runbook
+  service_documentation
+  past_incident
+  postmortem
+  github_document
+}
+
+enum ActionStatus {
+  draft
+  pending
+  approved
+  rejected
+  executing
+  succeeded
+  failed
+  cancelled
+  expired
+}
+
+enum ApprovalDecision {
+  approved
+  rejected
+}
+
+model Organization {
+  id          String   @id @default(uuid()) @db.Uuid
+  auth0Id     String   @unique @map("auth0_id")
+  slug        String   @unique
+  displayName String   @map("display_name")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  users          User[]
+  services       Service[]
+  incidents      Incident[]
+  timelineEvents TimelineEvent[]
+  documents      Document[]
+  actionRequests ActionRequest[]
+  auditEvents    AuditEvent[]
+
+  @@map("organizations")
+}
+
+model User {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  auth0Subject   String   @map("auth0_subject")
+  email          String
+  displayName    String   @map("display_name")
+  roles          String[] @default([])
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ownedIncidents Incident[]   @relation("IncidentOwner")
+  approvals     Approval[]
+
+  @@unique([organizationId, auth0Subject])
+  @@index([organizationId, email])
+  @@map("users")
+}
+
+model Service {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  slug           String
+  displayName    String   @map("display_name")
+  description    String?
+  repositoryUrl  String?  @map("repository_url")
+  runbookUrl     String?  @map("runbook_url")
+  ownerTeam      String   @map("owner_team")
+  environment    String
+  labels         Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incidents    Incident[]
+  outgoing     ServiceDependency[] @relation("DependencySource")
+  incoming     ServiceDependency[] @relation("DependencyTarget")
+
+  @@unique([organizationId, slug, environment])
+  @@index([organizationId, ownerTeam])
+  @@map("services")
+}
+
+model ServiceDependency {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  sourceId       String   @map("source_id") @db.Uuid
+  targetId       String   @map("target_id") @db.Uuid
+  kind           String
+  criticality    String
+  observedAt     DateTime @map("observed_at") @db.Timestamptz(6)
+
+  source Service @relation("DependencySource", fields: [sourceId], references: [id], onDelete: Cascade)
+  target Service @relation("DependencyTarget", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, sourceId, targetId, kind])
+  @@index([organizationId, targetId])
+  @@map("service_dependencies")
+}
+
+model Incident {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  serviceId      String           @map("service_id") @db.Uuid
+  ownerId        String?          @map("owner_id") @db.Uuid
+  reference      String
+  title          String
+  summary        String?
+  severity       IncidentSeverity
+  status         IncidentStatus   @default(triggered)
+  fingerprint    String
+  startedAt      DateTime         @map("started_at") @db.Timestamptz(6)
+  resolvedAt     DateTime?        @map("resolved_at") @db.Timestamptz(6)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  service      Service      @relation(fields: [serviceId], references: [id])
+  owner        User?        @relation("IncidentOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  timeline     TimelineEvent[]
+  hypotheses   Hypothesis[]
+  actions      ActionRequest[]
+
+  @@unique([organizationId, reference])
+  @@index([organizationId, status, severity, startedAt(sort: Desc)])
+  @@index([organizationId, fingerprint, startedAt(sort: Desc)])
+  @@map("incidents")
+}
+
+model TimelineEvent {
+  id             String            @id @default(uuid()) @db.Uuid
+  organizationId String            @map("organization_id") @db.Uuid
+  incidentId     String            @map("incident_id") @db.Uuid
+  type           TimelineEventType
+  source         String
+  sourceEventId  String            @map("source_event_id")
+  title          String
+  detail         String?
+  payload        Json
+  occurredAt     DateTime          @map("occurred_at") @db.Timestamptz(6)
+  ingestedAt     DateTime          @default(now()) @map("ingested_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, source, sourceEventId])
+  @@index([organizationId, incidentId, occurredAt])
+  @@map("timeline_events")
+}
+
+model Document {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @map("organization_id") @db.Uuid
+  kind           DocumentKind
+  externalId     String       @map("external_id")
+  title          String
+  sourceUrl      String?      @map("source_url")
+  checksum       String
+  accessControl  Json         @default("{}") @map("access_control")
+  indexedAt      DateTime?    @map("indexed_at") @db.Timestamptz(6)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  chunks       DocumentChunk[]
+
+  @@unique([organizationId, kind, externalId])
+  @@index([organizationId, updatedAt(sort: Desc)])
+  @@map("documents")
+}
+
+model DocumentChunk {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @map("organization_id") @db.Uuid
+  documentId     String                   @map("document_id") @db.Uuid
+  ordinal        Int
+  content        String
+  tokenCount     Int                      @map("token_count")
+  metadata       Json                     @default("{}")
+  embedding      Unsupported("vector(1536)")?
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, ordinal])
+  @@index([organizationId, documentId])
+  @@map("document_chunks")
+}
+
+model Hypothesis {
+  id                  String   @id @default(uuid()) @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  incidentId          String   @map("incident_id") @db.Uuid
+  statement           String
+  confidence          Decimal  @db.Decimal(4, 3)
+  supportingEvidence  Json     @map("supporting_evidence")
+  conflictingEvidence Json     @map("conflicting_evidence")
+  recommendedChecks   Json     @map("recommended_checks")
+  model               String
+  promptVersion       String   @map("prompt_version")
+  generatedAt         DateTime @default(now()) @map("generated_at") @db.Timestamptz(6)
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, incidentId, generatedAt(sort: Desc)])
+  @@map("hypotheses")
+}
+
+model ActionRequest {
+  id               String       @id @default(uuid()) @db.Uuid
+  organizationId   String       @map("organization_id") @db.Uuid
+  incidentId       String       @map("incident_id") @db.Uuid
+  requestedById    String       @map("requested_by_id") @db.Uuid
+  actionType       String       @map("action_type")
+  target           Json
+  parameters       Json
+  reason           String
+  riskSummary      String       @map("risk_summary")
+  policySnapshot   Json         @map("policy_snapshot")
+  requiredApprovals Int         @map("required_approvals")
+  idempotencyKey   String       @map("idempotency_key")
+  status           ActionStatus @default(draft)
+  expiresAt        DateTime     @map("expires_at") @db.Timestamptz(6)
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt        DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  incident     Incident     @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  approvals    Approval[]
+  execution    ActionExecution?
+
+  @@unique([organizationId, idempotencyKey])
+  @@index([organizationId, status, expiresAt])
+  @@map("action_requests")
+}
+
+model Approval {
+  id              String           @id @default(uuid()) @db.Uuid
+  organizationId  String           @map("organization_id") @db.Uuid
+  actionRequestId String           @map("action_request_id") @db.Uuid
+  approverId      String           @map("approver_id") @db.Uuid
+  decision        ApprovalDecision
+  comment         String?
+  decidedAt       DateTime         @default(now()) @map("decided_at") @db.Timestamptz(6)
+
+  actionRequest ActionRequest @relation(fields: [actionRequestId], references: [id], onDelete: Cascade)
+  approver      User          @relation(fields: [approverId], references: [id])
+
+  @@unique([actionRequestId, approverId])
+  @@index([organizationId, decidedAt(sort: Desc)])
+  @@map("approvals")
+}
+
+model ActionExecution {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  actionRequestId String   @unique @map("action_request_id") @db.Uuid
+  executorJobId   String   @unique @map("executor_job_id")
+  preflight       Json
+  result          Json?
+  verification    Json?
+  startedAt       DateTime @map("started_at") @db.Timestamptz(6)
+  finishedAt      DateTime? @map("finished_at") @db.Timestamptz(6)
+
+  actionRequest ActionRequest @relation(fields: [actionRequestId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, startedAt(sort: Desc)])
+  @@map("action_executions")
+}
+
+model AuditEvent {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  actorType      String   @map("actor_type")
+  actorId        String   @map("actor_id")
+  action         String
+  resourceType   String   @map("resource_type")
+  resourceId     String   @map("resource_id")
+  correlationId  String   @map("correlation_id")
+  ipAddress      String?  @map("ip_address") @db.Inet
+  userAgent      String?  @map("user_agent")
+  metadata       Json
+  occurredAt     DateTime @default(now()) @map("occurred_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, occurredAt(sort: Desc)])
+  @@index([organizationId, resourceType, resourceId])
+  @@map("audit_events")
+}
