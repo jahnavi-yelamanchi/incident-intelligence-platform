@@ -12,6 +12,7 @@ import { completeSlackOAuth, slackAuthorizeUrl, type SlackOAuthConfig } from "./
 import { RealtimeHub } from "./realtime.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 import { processSlackEvent } from "./slack-events.js";
+import { createOpaPolicyEvaluator, developmentPolicyEvaluator } from "./policy.js";
 
 const config = loadConfig();
 const queues = createQueueRuntime(config.REDIS_URL);
@@ -37,6 +38,7 @@ const investigationProvider = config.OPENAI_API_KEY
   ? createOpenAiInvestigationProvider({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_INVESTIGATION_MODEL })
   : unavailableInvestigationProvider();
 const realtimeHub = new RealtimeHub();
+const evaluatePolicy = config.OPA_URL ? createOpaPolicyEvaluator(config.OPA_URL) : developmentPolicyEvaluator;
 const realtimeRelay = createRealtimeRelay(config.REDIS_URL, (message) => realtimeHub.publish(message.organizationId, message.type, message.payload));
 await realtimeRelay.start();
 const remediationDispatcher = await createTemporalRemediationDispatcher({
@@ -63,7 +65,7 @@ const app = await buildApp({
   authenticate,
   listIncidents: (context, query) => listIncidents(database, context, query),
   createActionRequest: (context, incidentId, input, correlationId) =>
-    createActionRequest(database, context, incidentId, input, correlationId, remediationDispatcher),
+    createActionRequest(database, context, incidentId, input, correlationId, remediationDispatcher, evaluatePolicy),
   decideActionApproval: (context, actionRequestId, input, correlationId) =>
     decideActionApproval(database, context, actionRequestId, input, correlationId, remediationDispatcher),
   cancelActionRequest: (context, actionRequestId, reason, correlationId) =>

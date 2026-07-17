@@ -2,6 +2,7 @@ import { Prisma, type DatabaseClient, withTenant } from "@incident/database";
 import { z } from "zod";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import type { RemediationDispatcher } from "./remediation-dispatcher.js";
+import type { RemediationPolicyEvaluator } from "./policy.js";
 
 export const listIncidentsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -97,7 +98,10 @@ export async function createActionRequest(
   input: CreateActionRequest,
   correlationId: string,
   dispatcher: RemediationDispatcher,
+  evaluatePolicy: RemediationPolicyEvaluator,
 ) {
+  const policy = await evaluatePolicy(context, input);
+  if (!policy.allow) throw Object.assign(new Error(policy.reason), { statusCode: 403 });
   const created = await withTenant(database, context.organizationId, async (transaction) => {
     const [incident, requester] = await Promise.all([
       transaction.incident.findUnique({ where: { id: incidentId } }),
@@ -117,9 +121,9 @@ export async function createActionRequest(
         target: input.target as Prisma.InputJsonValue,
         parameters: input.parameters as Prisma.InputJsonValue,
         reason: input.reason,
-        riskSummary: "Availability-affecting change; verified by an independent production approver.",
-        policySnapshot: { requiredApprovals: 1, selfApprovalAllowed: false, dryRunRequired: true },
-        requiredApprovals: 1,
+        riskSummary: policy.reason,
+        policySnapshot: { ...policy, selfApprovalAllowed: false },
+        requiredApprovals: policy.requiredApprovals,
         idempotencyKey: crypto.randomUUID(),
         status: "pending",
         expiresAt: new Date(Date.now() + 15 * 60_000),
@@ -134,7 +138,7 @@ export async function createActionRequest(
         resourceType: "action_request",
         resourceId: request.id,
         correlationId,
-        metadata: { incidentId: incident.id, actionType: request.actionType, requiredApprovals: 1 },
+        metadata: { incidentId: incident.id, actionType: request.actionType, requiredApprovals: policy.requiredApprovals, policySource: policy.source },
       },
     });
     return { request, requesterSubject: requester.auth0Subject };

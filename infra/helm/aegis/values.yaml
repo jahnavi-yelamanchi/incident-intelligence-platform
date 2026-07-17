@@ -24,3 +24,8 @@ ingress:
   className: alb
   host: console.example.com
   certificateArn: ""
+opa:
+  image: openpolicyagent/opa:0.69.0-static
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 250m, memory: 128Mi }

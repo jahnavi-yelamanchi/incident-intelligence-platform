@@ -18,6 +18,7 @@ const configSchema = z.object({
   SLACK_CLIENT_SECRET: z.string().min(1).optional(),
   SLACK_REDIRECT_URI: z.string().url().optional(),
   SLACK_SIGNING_SECRET: z.string().min(1).optional(),
+  OPA_URL: z.string().url().optional(),
   TEMPORAL_ADDRESS: z.string().min(1).default("localhost:7233"),
   TEMPORAL_NAMESPACE: z.string().min(1).default("default"),
   TEMPORAL_TASK_QUEUE: z.string().min(1).default("remediation-v1"),

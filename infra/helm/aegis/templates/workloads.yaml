@@ -13,6 +13,14 @@ data:
   TEMPORAL_ADDRESS: {{ .Values.config.temporalAddress | quote }}
   TEMPORAL_NAMESPACE: {{ .Values.config.temporalNamespace | quote }}
   TEMPORAL_TASK_QUEUE: {{ .Values.config.temporalTaskQueue | quote }}
+  OPA_URL: "http://127.0.0.1:8181"
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: aegis-remediation-policy }
+data:
+  remediation.rego: |-
+{{ .Files.Get "files/remediation.rego" | indent 4 }}
 ---
 {{- range $name, $image := .Values.images }}
 apiVersion: apps/v1
@@ -41,6 +49,18 @@ spec:
           ports: [{ containerPort: 3000, name: http }]
           readinessProbe: { httpGet: { path: /, port: http }, initialDelaySeconds: 10 }
           {{- end }}
+        {{- if eq $name "api" }}
+        - name: opa
+          image: {{ $.Values.opa.image | quote }}
+          args: ["run", "--server", "/policies/remediation.rego"]
+          ports: [{ containerPort: 8181, name: opa }]
+          securityContext: { allowPrivilegeEscalation: false, readOnlyRootFilesystem: true, capabilities: { drop: ["ALL"] } }
+          volumeMounts: [{ name: remediation-policy, mountPath: /policies, readOnly: true }]
+          resources: {{ toYaml $.Values.opa.resources | nindent 12 }}
+        {{- end }}
+      {{- if eq $name "api" }}
+      volumes: [{ name: remediation-policy, configMap: { name: aegis-remediation-policy } }]
+      {{- end }}
 ---
 {{- end }}
 apiVersion: v1
