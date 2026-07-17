@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { createIngestionJobs, queueEnvelopeSchema } from "./index";
+import {
+  correlationReferenceSchema,
+  createIngestionJobs,
+  deadLetterSchema,
+  queueEnvelopeSchema,
+} from "./index";
 
 const event = {
   id: "91c15146-9f41-40ea-9f5f-7be0e8bd119b",
@@ -31,5 +36,33 @@ describe("ingestion queue jobs", () => {
 
   it("rejects an invalid normalized event before Redis", () => {
     expect(() => createIngestionJobs([{ ...event, organizationId: "wrong" }], "request-123")).toThrow();
+  });
+});
+
+describe("downstream queue contracts", () => {
+  it("requires tenant and correlation context", () => {
+    expect(
+      correlationReferenceSchema.parse({
+        organizationId: event.organizationId,
+        eventId: event.id,
+        correlationId: "request-123",
+      }),
+    ).toBeTruthy();
+    expect(() =>
+      correlationReferenceSchema.parse({ eventId: event.id, correlationId: "request-123" }),
+    ).toThrow();
+  });
+
+  it("preserves a structured terminal failure", () => {
+    expect(
+      deadLetterSchema.parse({
+        sourceQueue: "event-ingestion-v1",
+        jobId: "job-123",
+        correlationId: "request-123",
+        failedAt: "2026-07-17T12:00:00.000Z",
+        error: { name: "Error", message: "database unavailable" },
+        data: { eventId: event.id },
+      }).error.message,
+    ).toBe("database unavailable");
   });
 });

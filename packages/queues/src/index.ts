@@ -21,6 +21,24 @@ export const queueEnvelopeSchema = z.object({
 
 export type QueueEnvelope = z.infer<typeof queueEnvelopeSchema>;
 
+export const correlationReferenceSchema = z.object({
+  organizationId: z.string().uuid(),
+  eventId: z.string().uuid(),
+  correlationId: z.string().min(1).max(128),
+});
+
+export const deadLetterSchema = z.object({
+  sourceQueue: z.string().min(1),
+  jobId: z.string().min(1),
+  correlationId: z.string().min(1).max(128),
+  failedAt: z.string().datetime(),
+  error: z.object({ name: z.string(), message: z.string(), stack: z.string().optional() }),
+  data: z.unknown(),
+});
+
+export type CorrelationReference = z.infer<typeof correlationReferenceSchema>;
+export type DeadLetter = z.infer<typeof deadLetterSchema>;
+
 const defaultJobOptions: JobsOptions = {
   attempts: 5,
   backoff: { type: "exponential", delay: 1_000 },
@@ -67,22 +85,60 @@ export function createQueueRuntime(redisUrl: string) {
     connection,
     defaultJobOptions,
   });
+  const correlation = new Queue<CorrelationReference>(queueNames.correlation, {
+    connection,
+    defaultJobOptions,
+  });
+  const deadLetter = new Queue<DeadLetter>(queueNames.deadLetter, {
+    connection,
+    defaultJobOptions: {
+      removeOnComplete: { age: 30 * 86_400, count: 100_000 },
+      removeOnFail: false,
+    },
+  });
 
   return {
     ingestion,
+    correlation,
+    deadLetter,
     async publishEvents(events: readonly NormalizedEvent[], correlationId: string) {
       if (events.length === 0) return [];
       return ingestion.addBulk(createIngestionJobs(events, correlationId));
+    },
+    async publishCorrelation(reference: CorrelationReference) {
+      const data = correlationReferenceSchema.parse(reference);
+      return correlation.add("correlate-event", data, {
+        jobId: `${data.organizationId}-${data.eventId}`,
+        deduplication: { id: `${data.organizationId}:${data.eventId}` },
+      });
+    },
+    async publishDeadLetter(deadLetterEvent: DeadLetter) {
+      const data = deadLetterSchema.parse(deadLetterEvent);
+      return deadLetter.add("terminal-failure", data, {
+        jobId: `${data.sourceQueue}-${data.jobId}`,
+      });
     },
     async readiness() {
       if (connection.status === "wait") await connection.connect();
       return (await connection.ping()) === "PONG" && !(await ingestion.isPaused());
     },
     async close() {
-      await ingestion.close();
+      await Promise.all([ingestion.close(), correlation.close(), deadLetter.close()]);
       if (connection.status !== "end") await connection.quit();
     },
   };
+}
+
+export function createWorkerConnection(redisUrl: string) {
+  const protocol = new URL(redisUrl).protocol;
+  if (protocol !== "redis:" && protocol !== "rediss:") {
+    throw new Error("REDIS_URL must use the redis or rediss protocol.");
+  }
+
+  return new Redis(redisUrl, {
+    enableReadyCheck: true,
+    maxRetriesPerRequest: null,
+  });
 }
 
 export type QueueRuntime = ReturnType<typeof createQueueRuntime>;
