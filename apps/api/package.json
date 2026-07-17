@@ -19,6 +19,7 @@
     "@fastify/swagger-ui": "latest",
     "@incident/contracts": "workspace:*",
     "@incident/database": "workspace:*",
+    "@incident/investigation": "workspace:*",
     "@incident/queues": "workspace:*",
     "fastify": "latest",
     "fastify-raw-body": "latest",

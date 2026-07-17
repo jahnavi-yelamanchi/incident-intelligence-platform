@@ -3,6 +3,7 @@ import { loadConfig } from "./config.js";
 import { createQueueRuntime } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
 import { createActionRequest, decideActionApproval, listIncidents } from "./incidents.js";
+import { searchEvidence, upsertDocument } from "./investigation.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
 
 const config = loadConfig();
@@ -44,6 +45,8 @@ const app = await buildApp({
     createActionRequest(database, context, incidentId, input, correlationId),
   decideActionApproval: (context, actionRequestId, input, correlationId) =>
     decideActionApproval(database, context, actionRequestId, input, correlationId),
+  upsertDocument: (context, input, correlationId) => upsertDocument(database, context, input, correlationId),
+  searchEvidence: (context, input) => searchEvidence(database, context, input),
 });
 
 const close = async (signal: string) => {

@@ -3,7 +3,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
-import { alertmanagerWebhookSchema, type NormalizedEvent } from "@incident/contracts";
+import { alertmanagerWebhookSchema, documentUpsertSchema, evidenceSearchSchema, type DocumentUpsert, type EvidenceSearch, type NormalizedEvent } from "@incident/contracts";
 import Fastify, { LogController } from "fastify";
 import rawBody from "fastify-raw-body";
 import { normalizeAlertmanagerWebhook } from "./ingestion/normalize-alertmanager.js";
@@ -26,6 +26,8 @@ export type ApiDependencies = {
   listIncidents: (context: ApiAuthContext, query: ListIncidentsQuery) => Promise<unknown[]>;
   createActionRequest: (context: ApiAuthContext, incidentId: string, input: CreateActionRequest, correlationId: string) => Promise<unknown>;
   decideActionApproval: (context: ApiAuthContext, actionRequestId: string, input: ApprovalDecision, correlationId: string) => Promise<unknown>;
+  upsertDocument: (context: ApiAuthContext, input: DocumentUpsert, correlationId: string) => Promise<unknown>;
+  searchEvidence: (context: ApiAuthContext, input: EvidenceSearch) => Promise<unknown[]>;
   logger?: boolean;
 };
 
@@ -93,6 +95,22 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = approvalDecisionSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_approval" });
     return reply.send(await dependencies.decideActionApproval(context, request.params.actionRequestId, parsed.data, request.id));
+  });
+
+  app.post("/v1/documents", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = documentUpsertSchema.safeParse(request.body);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_document" });
+    return reply.code(201).send(await dependencies.upsertDocument(context, parsed.data, request.id));
+  });
+
+  app.get("/v1/evidence/search", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    const parsed = evidenceSearchSchema.safeParse(request.query);
+    if (!parsed.success) return reply.code(400).send({ error: "invalid_evidence_query" });
+    return { items: await dependencies.searchEvidence(context, parsed.data) };
   });
 
   app.post<{ Params: { integrationId: string } }>(

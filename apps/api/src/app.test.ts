@@ -28,6 +28,8 @@ describe("API", () => {
       listIncidents: async () => [],
       createActionRequest: async () => ({}),
       decideActionApproval: async () => ({}),
+      upsertDocument: async () => ({}),
+      searchEvidence: async () => [],
     });
 
     const payload = JSON.stringify({
@@ -79,6 +81,8 @@ describe("API", () => {
       listIncidents: async () => [],
       createActionRequest: async () => ({}),
       decideActionApproval: async () => ({}),
+      upsertDocument: async () => ({}),
+      searchEvidence: async () => [],
     });
 
     const response = await app.inject({ method: "GET", url: "/health/ready" });
@@ -99,6 +103,8 @@ describe("API", () => {
       listIncidents,
       createActionRequest: async () => ({}),
       decideActionApproval: async () => ({}),
+      upsertDocument: async () => ({}),
+      searchEvidence: async () => [],
     });
 
     const response = await app.inject({
@@ -109,6 +115,36 @@ describe("API", () => {
 
     expect(response.statusCode).toBe(200);
     expect(listIncidents).toHaveBeenCalledWith(context, { status: "investigating", limit: 10 });
+    await app.close();
+  });
+
+  it("indexes documents and retrieves evidence only for the authenticated tenant", async () => {
+    const upsertDocument = vi.fn(async () => ({ id: "document-id", chunkCount: 1 }));
+    const searchEvidence = vi.fn(async () => []);
+    const app = await buildApp({
+      logger: false,
+      corsOrigins: [],
+      getIntegrationCredential: async () => null,
+      publishEvents: async () => undefined,
+      readiness: async () => ({ database: true, redis: true, queue: true }),
+      authenticate: async () => context,
+      listIncidents: async () => [],
+      createActionRequest: async () => ({}),
+      decideActionApproval: async () => ({}),
+      upsertDocument,
+      searchEvidence,
+    });
+
+    const create = await app.inject({
+      method: "POST",
+      url: "/v1/documents",
+      payload: { kind: "runbook", externalId: "checkout-v1", title: "Checkout runbook", content: "Verify checkout latency before scaling." },
+    });
+    const search = await app.inject({ method: "GET", url: "/v1/evidence/search?query=checkout%20latency" });
+    expect(create.statusCode).toBe(201);
+    expect(upsertDocument).toHaveBeenCalledWith(context, expect.objectContaining({ externalId: "checkout-v1" }), expect.any(String));
+    expect(search.statusCode).toBe(200);
+    expect(searchEvidence).toHaveBeenCalledWith(context, { query: "checkout latency", limit: 8 });
     await app.close();
   });
 });

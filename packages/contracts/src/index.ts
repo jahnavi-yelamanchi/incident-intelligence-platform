@@ -31,6 +31,29 @@ export const evidenceCitationSchema = z.object({
   sourceUrl: z.string().url().optional(),
 });
 
+export const documentKindSchema = z.enum([
+  "runbook",
+  "service_documentation",
+  "past_incident",
+  "postmortem",
+  "github_document",
+]);
+
+export const documentUpsertSchema = z.object({
+  kind: documentKindSchema,
+  externalId: z.string().min(1).max(512),
+  title: z.string().min(1).max(240),
+  content: z.string().min(1).max(2_000_000),
+  sourceUrl: z.string().url().optional(),
+  accessControl: z.record(z.string(), z.unknown()).default({}),
+});
+
+export const evidenceSearchSchema = z.object({
+  query: z.string().min(2).max(1_000),
+  limit: z.coerce.number().int().min(1).max(20).default(8),
+  kinds: z.array(documentKindSchema).max(5).optional(),
+});
+
 export const hypothesisSchema = z.object({
   id: z.string().uuid(),
   incidentId: z.string().uuid(),
@@ -116,3 +139,5 @@ export type Hypothesis = z.infer<typeof hypothesisSchema>;
 export type ActionRequest = z.infer<typeof actionRequestSchema>;
 export type NormalizedEvent = z.infer<typeof normalizedEventSchema>;
 export type AlertmanagerWebhook = z.infer<typeof alertmanagerWebhookSchema>;
+export type DocumentUpsert = z.infer<typeof documentUpsertSchema>;
+export type EvidenceSearch = z.infer<typeof evidenceSearchSchema>;
