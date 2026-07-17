@@ -49,6 +49,8 @@ Every pull request and `main` push runs this same verification set in GitHub Act
 
 Operational credentials must never be committed. Production workloads receive short-lived AWS credentials through IRSA and Kubernetes permissions through dedicated service accounts.
 
+Integration setup and signed webhook contracts are documented in [INTEGRATIONS.md](docs/operations/INTEGRATIONS.md).
+
 ## Live local demo
 
 Use separate terminals after starting Docker and applying migrations:
