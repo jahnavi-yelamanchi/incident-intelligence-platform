@@ -17,6 +17,7 @@
     "@fastify/rate-limit": "latest",
     "@fastify/swagger": "latest",
     "@fastify/swagger-ui": "latest",
+    "@fastify/websocket": "^11.3.0",
     "@incident/contracts": "workspace:*",
     "@incident/database": "workspace:*",
     "@incident/investigation": "workspace:*",

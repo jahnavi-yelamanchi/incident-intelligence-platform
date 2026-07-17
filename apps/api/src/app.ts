@@ -5,6 +5,7 @@ import swagger from "@fastify/swagger";
 import swaggerUi from "@fastify/swagger-ui";
 import { alertmanagerWebhookSchema, documentUpsertSchema, evidenceSearchSchema, type DocumentUpsert, type EvidenceSearch, type NormalizedEvent } from "@incident/contracts";
 import Fastify, { LogController } from "fastify";
+import websocket from "@fastify/websocket";
 import rawBody from "fastify-raw-body";
 import { z } from "zod";
 import { normalizeAlertmanagerWebhook } from "./ingestion/normalize-alertmanager.js";
@@ -15,6 +16,7 @@ import { integrationUpsertSchema, type IntegrationUpsert } from "./integrations.
 import { githubDeploymentStatusSchema, normalizeGitHubDeploymentStatus } from "./ingestion/normalize-github.js";
 import { verifyGitHubSignature } from "./security/integration-signatures.js";
 import type { WebhookIntegration } from "./webhook-integrations.js";
+import { accessTokenFromSocketProtocol, RealtimeHub, type RealtimeSocket } from "./realtime.js";
 
 export type IntegrationCredential = {
   organizationId: string;
@@ -41,6 +43,7 @@ export type ApiDependencies = {
   resolveWebhookIntegration?: (provider: "github" | "slack", connectionId: string) => Promise<WebhookIntegration | null>;
   beginSlackOAuth?: (context: ApiAuthContext) => Promise<string>;
   completeSlackOAuth?: (input: { code: string; state: string; correlationId: string }) => Promise<unknown>;
+  realtimeHub?: RealtimeHub;
   logger?: boolean;
 };
 
@@ -60,6 +63,7 @@ export async function buildApp(dependencies: ApiDependencies) {
   });
   await app.register(rateLimit, { max: 300, timeWindow: "1 minute" });
   await app.register(rawBody, { field: "rawBody", global: false, encoding: "utf8", runFirst: true });
+  await app.register(websocket);
   await app.register(swagger, {
     openapi: {
       info: { title: "Incident Intelligence API", version: "1.0.0" },
@@ -69,6 +73,16 @@ export async function buildApp(dependencies: ApiDependencies) {
   await app.register(swaggerUi, { routePrefix: "/docs" });
 
   app.get("/health/live", { config: { rateLimit: false } }, async () => ({ status: "ok" }));
+
+  app.get("/v1/realtime", { websocket: true }, async (connection, request) => {
+    const token = accessTokenFromSocketProtocol(request.headers["sec-websocket-protocol"]);
+    const context = token ? await dependencies.authenticate(`Bearer ${token}`) : null;
+    const socket = connection.socket as unknown as RealtimeSocket & { on: (event: string, listener: () => void) => void };
+    if (!context || !dependencies.realtimeHub) { socket.close(1008, "unauthorized"); return; }
+    const remove = dependencies.realtimeHub.add(context.organizationId, socket);
+    socket.on("close", remove);
+    socket.send(JSON.stringify({ type: "realtime.connected", payload: { organizationId: context.organizationId }, occurredAt: new Date().toISOString() }));
+  });
   app.get("/health/ready", { config: { rateLimit: false } }, async (_request, reply) => {
     const checks = await dependencies.readiness();
     const ready = Object.values(checks).every(Boolean);
@@ -99,6 +113,7 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = createActionRequestSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_action_request" });
     const action = await dependencies.createActionRequest(context, request.params.incidentId, parsed.data, request.id);
+    dependencies.realtimeHub?.publish(context.organizationId, "action.requested", action);
     return reply.code(201).send(action);
   });
 
@@ -107,7 +122,9 @@ export async function buildApp(dependencies: ApiDependencies) {
     if (!context) return reply.code(401).send({ error: "unauthorized" });
     const parsed = approvalDecisionSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_approval" });
-    return reply.send(await dependencies.decideActionApproval(context, request.params.actionRequestId, parsed.data, request.id));
+    const decision = await dependencies.decideActionApproval(context, request.params.actionRequestId, parsed.data, request.id);
+    dependencies.realtimeHub?.publish(context.organizationId, "action.approval_decided", decision);
+    return reply.send(decision);
   });
 
   app.post<{ Params: { actionRequestId: string } }>("/v1/actions/:actionRequestId/cancel", async (request, reply) => {
@@ -115,7 +132,9 @@ export async function buildApp(dependencies: ApiDependencies) {
     if (!context) return reply.code(401).send({ error: "unauthorized" });
     const body = z.object({ reason: z.string().min(3).max(1_000) }).safeParse(request.body);
     if (!body.success) return reply.code(400).send({ error: "invalid_cancellation" });
-    return reply.send(await dependencies.cancelActionRequest(context, request.params.actionRequestId, body.data.reason, request.id));
+    const cancelled = await dependencies.cancelActionRequest(context, request.params.actionRequestId, body.data.reason, request.id);
+    dependencies.realtimeHub?.publish(context.organizationId, "action.cancelled", cancelled);
+    return reply.send(cancelled);
   });
 
   app.post("/v1/documents", async (request, reply) => {
