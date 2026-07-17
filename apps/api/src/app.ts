@@ -12,6 +12,9 @@ import { approvalDecisionSchema, createActionRequestSchema, listIncidentsQuerySc
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
 import { verifyWebhookSignature } from "./security/webhook-signature.js";
 import { integrationUpsertSchema, type IntegrationUpsert } from "./integrations.js";
+import { githubDeploymentStatusSchema, normalizeGitHubDeploymentStatus } from "./ingestion/normalize-github.js";
+import { verifyGitHubSignature } from "./security/integration-signatures.js";
+import type { WebhookIntegration } from "./webhook-integrations.js";
 
 export type IntegrationCredential = {
   organizationId: string;
@@ -35,6 +38,7 @@ export type ApiDependencies = {
   listHypotheses: (context: ApiAuthContext, incidentId: string) => Promise<unknown[]>;
   listIntegrations?: (context: ApiAuthContext) => Promise<unknown[]>;
   upsertIntegration?: (context: ApiAuthContext, input: IntegrationUpsert, correlationId: string) => Promise<unknown>;
+  resolveWebhookIntegration?: (provider: "github" | "slack", connectionId: string) => Promise<WebhookIntegration | null>;
   logger?: boolean;
 };
 
@@ -154,6 +158,19 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = integrationUpsertSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_integration" });
     return reply.code(201).send(await dependencies.upsertIntegration(context, parsed.data, request.id));
+  });
+
+  app.post<{ Params: { connectionId: string } }>("/v1/integrations/github/:connectionId/webhook", { config: { rawBody: true, rateLimit: { max: 120, timeWindow: "1 minute" } } }, async (request, reply) => {
+    if (!dependencies.resolveWebhookIntegration) return reply.code(503).send({ error: "integrations_unavailable" });
+    const connection = await dependencies.resolveWebhookIntegration("github", request.params.connectionId);
+    if (!connection || !connection.enabled) return reply.code(404).send({ error: "integration_not_found" });
+    const rawBody = typeof request.rawBody === "string" ? request.rawBody : request.rawBody?.toString("utf8") ?? "";
+    if (!verifyGitHubSignature(rawBody, connection.secret, request.headers["x-hub-signature-256"] as string | undefined)) return reply.code(401).send({ error: "invalid_signature" });
+    if (request.headers["x-github-event"] !== "deployment_status") return reply.code(202).send({ accepted: true, eventCount: 0 });
+    const payload = githubDeploymentStatusSchema.safeParse(request.body);
+    if (!payload.success) return reply.code(400).send({ error: "invalid_payload" });
+    await dependencies.publishEvents([normalizeGitHubDeploymentStatus(payload.data, connection.organizationId)], request.id);
+    return reply.code(202).send({ accepted: true, eventCount: 1 });
   });
 
   app.post<{ Params: { integrationId: string } }>(

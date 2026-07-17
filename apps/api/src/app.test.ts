@@ -198,4 +198,20 @@ describe("API", () => {
     expect(upsertIntegration).toHaveBeenCalledWith(expect.objectContaining({ roles: ["administrator"] }), expect.objectContaining({ provider: "github" }), expect.any(String));
     await app.close();
   });
+
+  it("authenticates GitHub deployment webhooks before publishing normalized events", async () => {
+    const publishEvents = vi.fn(async () => undefined);
+    const app = await buildApp({
+      logger: false, corsOrigins: [], getIntegrationCredential: async () => null, publishEvents,
+      readiness: async () => ({ database: true, redis: true, queue: true }), authenticate: async () => null,
+      listIncidents: async () => [], createActionRequest: async () => ({}), decideActionApproval: async () => ({}), cancelActionRequest: async () => ({}), upsertDocument: async () => ({}), searchEvidence: async () => [], generateInvestigation: async () => ({}), listHypotheses: async () => [],
+      resolveWebhookIntegration: async () => ({ organizationId: context.organizationId, secret: "github-secret", enabled: true }),
+    });
+    const payload = JSON.stringify({ deployment_status: { id: 3, state: "failure", environment: "production", created_at: "2026-07-17T12:00:00.000Z" }, deployment: { id: 2 }, repository: { full_name: "acme/checkout" } });
+    const signature = `sha256=${createHmac("sha256", "github-secret").update(payload).digest("hex")}`;
+    const response = await app.inject({ method: "POST", url: "/v1/integrations/github/75c56ad8-d17d-4d28-a4e3-66be34d4f18a/webhook", headers: { "content-type": "application/json", "x-hub-signature-256": signature, "x-github-event": "deployment_status" }, payload });
+    expect(response.statusCode).toBe(202);
+    expect(publishEvents).toHaveBeenCalledOnce();
+    await app.close();
+  });
 });
