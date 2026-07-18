@@ -7,7 +7,7 @@ import { generateInvestigation, listDocuments, listHypotheses, searchEvidence, u
 import { createOpenAiEmbeddingProvider, createOpenAiInvestigationProvider, unavailableEmbeddingProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
 import { createTemporalRemediationDispatcher, unavailableRemediationDispatcher } from "./remediation-dispatcher.js";
 import { getIntegrationCredentials, listIntegrations, upsertIntegration } from "./integrations.js";
-import { resolveWebhookIntegration } from "./webhook-integrations.js";
+import { resolvePrometheusIntegration, resolveWebhookIntegration } from "./webhook-integrations.js";
 import { completeSlackOAuth, slackAuthorizeUrl, type SlackOAuthConfig } from "./slack-oauth.js";
 import { RealtimeHub } from "./realtime.js";
 import { createAuth0AccessTokenVerifier } from "./security/auth0-access-token.js";
@@ -59,8 +59,7 @@ const githubAppConfig = config.GITHUB_APP_ID && config.GITHUB_APP_PRIVATE_KEY ? 
 
 const app = await buildApp({
   corsOrigins: config.CORS_ORIGINS.split(",").map((origin) => origin.trim()),
-  // Production adapters are wired in the integration and queue packages.
-  getIntegrationCredential: async () => null,
+  getIntegrationCredential: (connectionId) => resolvePrometheusIntegration(database, connectionId, config.INTEGRATION_ENCRYPTION_KEY),
   publishEvents: async (events, correlationId) => {
     await queues.publishEvents(events, correlationId);
   },

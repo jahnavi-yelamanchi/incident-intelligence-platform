@@ -3,6 +3,11 @@ import { decryptIntegrationCredentials } from "./security/integration-credential
 
 export type WebhookIntegration = { organizationId: string; secret: string; enabled: boolean };
 
+/** Alertmanager shares the encrypted generic-webhook connection boundary. */
+export async function resolvePrometheusIntegration(database: DatabaseClient, connectionId: string, encryptionKey: string | undefined): Promise<WebhookIntegration | null> {
+  return resolveWebhookIntegration(database, "generic_webhook", connectionId, encryptionKey);
+}
+
 export async function resolveWebhookIntegration(database: DatabaseClient, provider: "github" | "slack" | "generic_webhook", connectionId: string, encryptionKey: string | undefined): Promise<WebhookIntegration | null> {
   if (!encryptionKey) return null;
   const rows = await database.$queryRaw<Array<{ organization_id: string; encrypted_credentials: string; status: "active" | "disabled" | "error" }>>(
