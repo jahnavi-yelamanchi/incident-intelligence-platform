@@ -11,6 +11,7 @@ import {
   ChevronsLeft,
   ClipboardCheck,
   FileCode2,
+  PlugZap,
   LayoutDashboard,
   Network,
   Search,
@@ -26,12 +27,13 @@ import { type IncidentView } from "./data";
 import { MarkIcon } from "./icons";
 
 type ApprovalState = "idle" | "review" | "submitting" | "submitted" | "failed";
-type Workspace = "Command center" | "Incidents" | "Services" | "Runbooks" | "Approvals" | "Audit";
+type Workspace = "Command center" | "Incidents" | "Services" | "Runbooks" | "Approvals" | "Integrations" | "Audit";
 type HypothesisView = { id: string; statement: string; confidence: number; citations: unknown[]; recommendedChecks: unknown[] };
 type ActionView = { id: string; status: string; actionType: string; requiredApprovals: number; approvalCount: number; incident: { reference: string; title: string }; createdAt: string };
 type AuditView = { id: string; occurredAt: string; action: string; resourceType: string; resourceId: string; actorType: string };
 type ServiceView = { id: string; name: string; environment: string; ownerTeam: string; verificationStatus: string };
 type DocumentView = { id: string; title: string; kind: string; sourceUrl: string | null; indexedAt: string | null; chunkCount: number };
+type IntegrationView = { id: string; provider: "github" | "slack" | "generic_webhook"; externalId: string; status: "active" | "disabled" | "error"; metadata: Record<string, unknown>; updatedAt: string };
 
 const navigation = [
   { label: "Command center", icon: LayoutDashboard },
@@ -39,6 +41,7 @@ const navigation = [
   { label: "Services", icon: Network },
   { label: "Runbooks", icon: BookOpen },
   { label: "Approvals", icon: ClipboardCheck, count: 3 },
+  { label: "Integrations", icon: PlugZap },
   { label: "Audit", icon: ShieldCheck },
 ];
 
@@ -60,6 +63,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
   const [auditEvents, setAuditEvents] = useState<AuditView[]>([]);
   const [services, setServices] = useState<ServiceView[]>([]);
   const [documents, setDocuments] = useState<DocumentView[]>([]);
+  const [integrations, setIntegrations] = useState<IntegrationView[]>([]);
 
   const active = useMemo(() => incidents.find((incident) => incident.id === activeId) ?? incidents[0], [activeId, incidents]);
 
@@ -71,6 +75,11 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
   useEffect(() => {
     if (workspace !== "Audit") return;
     void fetch("/api/demo/audit").then((response) => response.ok ? response.json() as Promise<{ items: AuditView[] }> : { items: [] }).then((payload) => setAuditEvents(payload.items)).catch(() => undefined);
+  }, [workspace]);
+
+  useEffect(() => {
+    if (workspace !== "Integrations") return;
+    void fetch("/api/demo/integrations").then((response) => response.ok ? response.json() as Promise<{ items: IntegrationView[] }> : { items: [] }).then((payload) => setIntegrations(payload.items)).catch(() => undefined);
   }, [workspace]);
 
   useEffect(() => {
@@ -207,7 +216,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       {!incidentsHidden && <IncidentRail incidents={incidents} active={active} onSelect={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onClose={() => togglePanel("incidents")} />}
 
       <section className="workspace">
-        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} services={services} documents={documents} actionRequests={actionRequests} auditEvents={auditEvents} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} onDecide={setApprovalDecision} />}
+        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} services={services} documents={documents} integrations={integrations} actionRequests={actionRequests} auditEvents={auditEvents} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} onDecide={setApprovalDecision} />}
         <div className="incident-heading">
           <div className="heading-line"><span>{active.reference}</span><h1>{active.title}</h1><Severity value={active.severity} /></div>
           <div className="incident-meta">
@@ -285,7 +294,7 @@ function IncidentRail({ incidents, active, onSelect, onClose }: { incidents: Inc
   );
 }
 
-function FeatureWorkspace({ workspace, incidents, services, documents, actionRequests, auditEvents, onOpenIncident, onRequest, onDecide }: { workspace: Workspace; incidents: IncidentView[]; services: ServiceView[]; documents: DocumentView[]; actionRequests: ActionView[]; auditEvents: AuditView[]; onOpenIncident: (id: string) => void; onRequest: () => void; onDecide: (decision: { id: string; decision: "approved" | "rejected" }) => void }) {
+function FeatureWorkspace({ workspace, incidents, services, documents, integrations, actionRequests, auditEvents, onOpenIncident, onRequest, onDecide }: { workspace: Workspace; incidents: IncidentView[]; services: ServiceView[]; documents: DocumentView[]; integrations: IntegrationView[]; actionRequests: ActionView[]; auditEvents: AuditView[]; onOpenIncident: (id: string) => void; onRequest: () => void; onDecide: (decision: { id: string; decision: "approved" | "rejected" }) => void }) {
   const critical = incidents.filter((incident) => incident.severity === "critical");
   const content = workspace === "Command center"
     ? <><p>Live operational posture across the services currently under observation.</p><div className="feature-metrics"><strong>{incidents.length}<small>open incidents</small></strong><strong>{critical.length}<small>critical</small></strong><strong>{actionRequests.filter((action) => action.status === "pending").length}<small>awaiting approval</small></strong></div><div className="feature-list">{incidents.slice(0, 3).map((incident) => <button key={incident.id} onClick={() => onOpenIncident(incident.id)}><Severity value={incident.severity} /><span><strong>{incident.reference} · {incident.title}</strong><small>{incident.service} · {incident.status} · updated {relativeTime(incident.updatedAt)}</small></span><ChevronRight size={16} /></button>)}</div></>
@@ -295,7 +304,9 @@ function FeatureWorkspace({ workspace, incidents, services, documents, actionReq
         ? <><p>Indexed runbooks, postmortems, service documentation, and GitHub content available for cited investigation.</p><div className="feature-list">{documents.length ? documents.map((document) => <button key={document.id} onClick={() => document.sourceUrl && window.open(document.sourceUrl, "_blank", "noopener,noreferrer")}><BookOpen size={18} /><span><strong>{document.title}</strong><small>{document.kind.replaceAll("_", " ")} · {document.chunkCount} chunks · {document.indexedAt ? new Date(document.indexedAt).toLocaleDateString() : "not indexed"}</small></span><ChevronRight size={16} /></button>) : <p>No documents indexed for this tenant yet.</p>}</div></>
         : workspace === "Approvals"
           ? <><p>Pending remediation requests require an independent production approver. Create a safe, policy-gated request from an active incident.</p><div className="feature-list">{actionRequests.length ? actionRequests.map((action) => <div className="approval-row" key={action.id}><button onClick={onRequest}><ClipboardCheck size={18} /><span><strong>{action.actionType.replace("kubernetes.", "").replaceAll("-", " ")} · {action.status}</strong><small>{action.incident.reference} · {action.approvalCount}/{action.requiredApprovals} approvals</small></span><ChevronRight size={16} /></button>{action.status === "pending" && <div><button onClick={() => onDecide({ id: action.id, decision: "rejected" })}>Reject</button><button onClick={() => onDecide({ id: action.id, decision: "approved" })}>Approve</button></div>}</div>) : <p>No approval requests yet.</p>}</div><button className="feature-primary" onClick={onRequest}>Create approval request <ChevronRight size={17} /></button></>
-          : <><p>Immutable, tenant-scoped security and operational activity from the live audit explorer.</p><div className="feature-list">{auditEvents.length ? auditEvents.map((event) => <button key={event.id}><ShieldCheck size={18} /><span><strong>{event.action.replaceAll("_", " ")}</strong><small>{event.actorType} · {event.resourceType} · {new Date(event.occurredAt).toLocaleString()}</small></span><ChevronRight size={16} /></button>) : <p>No audit events available for this tenant.</p>}</div></>;
+          : workspace === "Integrations"
+            ? <><p>Provider connections are tenant-scoped and encrypted. Secrets are accepted only by the API and are never returned to this console.</p><div className="integration-grid">{(["github", "slack", "generic_webhook"] as const).map((provider) => { const connection = integrations.find((item) => item.provider === provider); const label = provider === "generic_webhook" ? "Prometheus & events" : provider.charAt(0).toUpperCase() + provider.slice(1); return <article key={provider} className={`integration-card ${connection ? "connected" : ""}`}><div><PlugZap size={18} /><span>{connection?.status === "active" ? "Connected" : "Not connected"}</span></div><h2>{label}</h2><p>{provider === "github" ? "Deploy signals and repository runbook sync." : provider === "slack" ? "OAuth incident channels and signed event callbacks." : "Signed Alertmanager, OpenTelemetry, and Kubernetes events."}</p>{connection ? <><small>{connection.externalId} · updated {relativeTime(connection.updatedAt)}</small><a href="https://github.com/jahnavi-yelamanchi/incident-intelligence-platform/blob/main/docs/operations/INTEGRATIONS.md" target="_blank" rel="noreferrer">View connection guide <ChevronRight size={15} /></a></> : <a href="https://github.com/jahnavi-yelamanchi/incident-intelligence-platform/blob/main/docs/operations/INTEGRATIONS.md" target="_blank" rel="noreferrer">Open setup guide <ChevronRight size={15} /></a>}</article>; })}</div></>
+            : <><p>Immutable, tenant-scoped security and operational activity from the live audit explorer.</p><div className="feature-list">{auditEvents.length ? auditEvents.map((event) => <button key={event.id}><ShieldCheck size={18} /><span><strong>{event.action.replaceAll("_", " ")}</strong><small>{event.actorType} · {event.resourceType} · {new Date(event.occurredAt).toLocaleString()}</small></span><ChevronRight size={16} /></button>) : <p>No audit events available for this tenant.</p>}</div></>;
   return <section className="feature-workspace"><header><span>{workspace}</span><h1>{workspace === "Command center" ? "Operational overview" : workspace}</h1></header>{content}</section>;
 }
 
