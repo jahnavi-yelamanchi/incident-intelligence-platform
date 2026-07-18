@@ -39,6 +39,7 @@ export type ApiDependencies = {
   decideActionApproval: (context: ApiAuthContext, actionRequestId: string, input: ApprovalDecision, correlationId: string) => Promise<unknown>;
   cancelActionRequest: (context: ApiAuthContext, actionRequestId: string, reason: string, correlationId: string) => Promise<unknown>;
   upsertDocument: (context: ApiAuthContext, input: DocumentUpsert, correlationId: string) => Promise<unknown>;
+  listDocuments?: (context: ApiAuthContext) => Promise<unknown[]>;
   searchEvidence: (context: ApiAuthContext, input: EvidenceSearch) => Promise<unknown[]>;
   generateInvestigation: (context: ApiAuthContext, incidentId: string, correlationId: string) => Promise<unknown>;
   listHypotheses: (context: ApiAuthContext, incidentId: string) => Promise<unknown[]>;
@@ -193,6 +194,12 @@ export async function buildApp(dependencies: ApiDependencies) {
     const parsed = documentUpsertSchema.safeParse(request.body);
     if (!parsed.success) return reply.code(400).send({ error: "invalid_document" });
     return reply.code(201).send(await dependencies.upsertDocument(context, parsed.data, request.id));
+  });
+  app.get("/v1/documents", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.listDocuments) return reply.code(503).send({ error: "documents_unavailable" });
+    return { items: await dependencies.listDocuments(context) };
   });
 
   app.get("/v1/evidence/search", async (request, reply) => {

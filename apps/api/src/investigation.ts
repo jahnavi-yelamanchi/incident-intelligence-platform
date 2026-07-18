@@ -85,6 +85,13 @@ export async function upsertDocument(
   });
 }
 
+export async function listDocuments(database: DatabaseClient, context: ApiAuthContext) {
+  return withTenant(database, context.organizationId, async (transaction) => {
+    const documents = await transaction.document.findMany({ orderBy: { updatedAt: "desc" }, take: 100, include: { _count: { select: { chunks: true } } } });
+    return documents.map((document) => ({ id: document.id, title: document.title, kind: document.kind, sourceUrl: document.sourceUrl, indexedAt: document.indexedAt?.toISOString() ?? null, chunkCount: document._count.chunks }));
+  });
+}
+
 /** Tenant-scoped lexical retrieval. Embedding retrieval can be merged into this ranked set once an embedding provider is configured. */
 export async function searchEvidence(database: DatabaseClient, context: ApiAuthContext, input: EvidenceSearch): Promise<DocumentCitation[]> {
   return withTenant(database, context.organizationId, async (transaction) => {
