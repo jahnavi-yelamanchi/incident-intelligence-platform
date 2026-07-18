@@ -30,6 +30,7 @@ type Workspace = "Command center" | "Incidents" | "Services" | "Runbooks" | "App
 type HypothesisView = { id: string; statement: string; confidence: number; citations: unknown[]; recommendedChecks: unknown[] };
 type ActionView = { id: string; status: string; actionType: string; requiredApprovals: number; approvalCount: number; incident: { reference: string; title: string }; createdAt: string };
 type AuditView = { id: string; occurredAt: string; action: string; resourceType: string; resourceId: string; actorType: string };
+type ServiceView = { id: string; name: string; environment: string; ownerTeam: string; verificationStatus: string };
 
 const navigation = [
   { label: "Command center", icon: LayoutDashboard },
@@ -56,6 +57,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
   const [actionRequests, setActionRequests] = useState<ActionView[]>([]);
   const [approvalDecision, setApprovalDecision] = useState<{ id: string; decision: "approved" | "rejected" } | null>(null);
   const [auditEvents, setAuditEvents] = useState<AuditView[]>([]);
+  const [services, setServices] = useState<ServiceView[]>([]);
 
   const active = useMemo(() => incidents.find((incident) => incident.id === activeId) ?? incidents[0], [activeId, incidents]);
 
@@ -67,6 +69,11 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
   useEffect(() => {
     if (workspace !== "Audit") return;
     void fetch("/api/demo/audit").then((response) => response.ok ? response.json() as Promise<{ items: AuditView[] }> : { items: [] }).then((payload) => setAuditEvents(payload.items)).catch(() => undefined);
+  }, [workspace]);
+
+  useEffect(() => {
+    if (workspace !== "Services") return;
+    void fetch("/api/demo/services").then((response) => response.ok ? response.json() as Promise<{ nodes: ServiceView[] }> : { nodes: [] }).then((payload) => setServices(payload.nodes)).catch(() => undefined);
   }, [workspace]);
 
   useEffect(() => {
@@ -193,7 +200,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       {!incidentsHidden && <IncidentRail incidents={incidents} active={active} onSelect={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onClose={() => togglePanel("incidents")} />}
 
       <section className="workspace">
-        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} actionRequests={actionRequests} auditEvents={auditEvents} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} onDecide={setApprovalDecision} />}
+        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} services={services} actionRequests={actionRequests} auditEvents={auditEvents} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} onDecide={setApprovalDecision} />}
         <div className="incident-heading">
           <div className="heading-line"><span>{active.reference}</span><h1>{active.title}</h1><Severity value={active.severity} /></div>
           <div className="incident-meta">
@@ -271,12 +278,12 @@ function IncidentRail({ incidents, active, onSelect, onClose }: { incidents: Inc
   );
 }
 
-function FeatureWorkspace({ workspace, incidents, actionRequests, auditEvents, onOpenIncident, onRequest, onDecide }: { workspace: Workspace; incidents: IncidentView[]; actionRequests: ActionView[]; auditEvents: AuditView[]; onOpenIncident: (id: string) => void; onRequest: () => void; onDecide: (decision: { id: string; decision: "approved" | "rejected" }) => void }) {
+function FeatureWorkspace({ workspace, incidents, services, actionRequests, auditEvents, onOpenIncident, onRequest, onDecide }: { workspace: Workspace; incidents: IncidentView[]; services: ServiceView[]; actionRequests: ActionView[]; auditEvents: AuditView[]; onOpenIncident: (id: string) => void; onRequest: () => void; onDecide: (decision: { id: string; decision: "approved" | "rejected" }) => void }) {
   const critical = incidents.filter((incident) => incident.severity === "critical");
   const content = workspace === "Command center"
     ? <><p>Live operational posture across the services currently under observation.</p><div className="feature-metrics"><strong>{incidents.length}<small>open incidents</small></strong><strong>{critical.length}<small>critical</small></strong><strong>{new Set(incidents.map((incident) => incident.service)).size}<small>services affected</small></strong></div></>
     : workspace === "Services"
-      ? <><p>Dependency-aware service inventory discovered from live operational signals.</p><div className="feature-list">{[...new Map(incidents.map((incident) => [incident.service, incident])).values()].map((incident) => <button key={incident.service} onClick={() => onOpenIncident(incident.id)}><Network size={18} /><span><strong>{incident.service}</strong><small>{incident.environment} · {incident.status}</small></span><ChevronRight size={16} /></button>)}</div></>
+      ? <><p>Dependency-aware service inventory discovered from live operational signals.</p><div className="feature-list">{services.length ? services.map((service) => { const incident = incidents.find((item) => item.service === service.name); return <button key={service.id} onClick={() => incident && onOpenIncident(incident.id)}><Network size={18} /><span><strong>{service.name}</strong><small>{service.environment} · {service.ownerTeam} · {service.verificationStatus}</small></span><ChevronRight size={16} /></button>; }) : <p>No discovered services yet.</p>}</div></>
       : workspace === "Runbooks"
         ? <><p>Runbook and evidence workspace. Select an incident to inspect its live evidence and request a cited investigation.</p><div className="feature-list">{incidents.map((incident) => <button key={incident.id} onClick={() => onOpenIncident(incident.id)}><BookOpen size={18} /><span><strong>{incident.reference} · {incident.service}</strong><small>{incident.timeline.length} live evidence event{incident.timeline.length === 1 ? "" : "s"}</small></span><ChevronRight size={16} /></button>)}</div></>
         : workspace === "Approvals"
