@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createOpenAiInvestigationProvider } from "./investigation-provider.js";
+import { createOpenAiEmbeddingProvider, createOpenAiInvestigationProvider } from "./investigation-provider.js";
 
 describe("OpenAI investigation provider", () => {
   it("uses strict structured output and validates the returned hypothesis", async () => {
@@ -35,5 +35,27 @@ describe("OpenAI investigation provider", () => {
         indexedAt: null,
       }],
     })).resolves.toMatchObject({ hypotheses: [{ confidence: 0.62 }] });
+  });
+});
+
+describe("OpenAI embedding provider", () => {
+  it("preserves API order and rejects malformed vectors", async () => {
+    const fetch = async (_url: string | URL | Request, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.model).toBe("text-embedding-3-small");
+      expect(body.dimensions).toBe(1536);
+      expect(body.input).toEqual(["first", "second"]);
+      return new Response(JSON.stringify({
+        data: [
+          { index: 1, embedding: Array.from({ length: 1536 }, () => 0.2) },
+          { index: 0, embedding: Array.from({ length: 1536 }, () => 0.1) },
+        ],
+      }), { status: 200 });
+    };
+    const provider = createOpenAiEmbeddingProvider({ apiKey: "test-key", model: "text-embedding-3-small", fetch });
+    await expect(provider.embed(["first", "second"])).resolves.toEqual([
+      Array.from({ length: 1536 }, () => 0.1),
+      Array.from({ length: 1536 }, () => 0.2),
+    ]);
   });
 });

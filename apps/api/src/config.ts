@@ -12,6 +12,7 @@ const configSchema = z.object({
   AUTH0_AUDIENCE: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_INVESTIGATION_MODEL: z.string().min(1).default("gpt-5.6"),
+  OPENAI_EMBEDDING_MODEL: z.string().min(1).default("text-embedding-3-small"),
   INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
   INTEGRATION_OAUTH_STATE_SECRET: z.string().min(32).optional(),
   SLACK_CLIENT_ID: z.string().min(1).optional(),

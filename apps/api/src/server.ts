@@ -4,7 +4,7 @@ import { createQueueRuntime, createRealtimeRelay } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
 import { cancelActionRequest, createActionRequest, decideActionApproval, listActionRequests, listIncidents } from "./incidents.js";
 import { generateInvestigation, listDocuments, listHypotheses, searchEvidence, upsertDocument } from "./investigation.js";
-import { createOpenAiInvestigationProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
+import { createOpenAiEmbeddingProvider, createOpenAiInvestigationProvider, unavailableEmbeddingProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
 import { createTemporalRemediationDispatcher, unavailableRemediationDispatcher } from "./remediation-dispatcher.js";
 import { getIntegrationCredentials, listIntegrations, upsertIntegration } from "./integrations.js";
 import { resolveWebhookIntegration } from "./webhook-integrations.js";
@@ -40,6 +40,9 @@ const authenticate = isDemoMode
 const investigationProvider = config.OPENAI_API_KEY
   ? createOpenAiInvestigationProvider({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_INVESTIGATION_MODEL })
   : unavailableInvestigationProvider();
+const embeddingProvider = config.OPENAI_API_KEY
+  ? createOpenAiEmbeddingProvider({ apiKey: config.OPENAI_API_KEY, model: config.OPENAI_EMBEDDING_MODEL })
+  : unavailableEmbeddingProvider();
 const realtimeHub = new RealtimeHub();
 const evaluatePolicy = config.OPA_URL ? createOpaPolicyEvaluator(config.OPA_URL) : developmentPolicyEvaluator;
 const realtimeRelay = createRealtimeRelay(config.REDIS_URL, (message) => realtimeHub.publish(message.organizationId, message.type, message.payload));
@@ -75,11 +78,11 @@ const app = await buildApp({
     decideActionApproval(database, context, actionRequestId, input, correlationId, remediationDispatcher),
   cancelActionRequest: (context, actionRequestId, reason, correlationId) =>
     cancelActionRequest(database, context, actionRequestId, reason, correlationId, remediationDispatcher),
-  upsertDocument: (context, input, correlationId) => upsertDocument(database, context, input, correlationId),
+  upsertDocument: (context, input, correlationId) => upsertDocument(database, context, input, correlationId, embeddingProvider),
   listDocuments: (context) => listDocuments(database, context),
-  searchEvidence: (context, input) => searchEvidence(database, context, input),
+  searchEvidence: (context, input) => searchEvidence(database, context, input, embeddingProvider),
   generateInvestigation: (context, incidentId, correlationId) =>
-    generateInvestigation(database, context, incidentId, investigationProvider, correlationId),
+    generateInvestigation(database, context, incidentId, investigationProvider, embeddingProvider, correlationId),
   listHypotheses: (context, incidentId) => listHypotheses(database, context, incidentId),
   listAuditEvents: (context, query) => listAuditEvents(database, context, query),
   serviceGraph: (context) => serviceGraph(database, context),

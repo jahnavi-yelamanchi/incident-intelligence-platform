@@ -2,7 +2,7 @@ import type { EvidenceSearch, DocumentUpsert } from "@incident/contracts";
 import { chunkDocument, documentChecksum, lexicalScore } from "@incident/investigation";
 import { Prisma, type DatabaseClient, withTenant } from "@incident/database";
 import type { ApiAuthContext } from "./security/auth0-access-token.js";
-import type { InvestigationProvider } from "./investigation-provider.js";
+import type { EmbeddingProvider, InvestigationProvider } from "./investigation-provider.js";
 
 export type DocumentCitation = {
   id: string;
@@ -20,16 +20,97 @@ function canManageEvidence(context: ApiAuthContext) {
   return context.roles.includes("responder") || context.roles.includes("incident-commander");
 }
 
+type RankedChunk = Omit<DocumentCitation, "score"> & { lexical: number; semantic: number };
+
+type VectorRow = {
+  id: string;
+  documentId: string;
+  ordinal: number;
+  title: string;
+  kind: string;
+  content: string;
+  sourceUrl: string | null;
+  indexedAt: Date | null;
+  distance: number;
+};
+
+function vectorLiteral(vector: number[]) {
+  if (vector.length !== 1536 || vector.some((value) => !Number.isFinite(value))) throw new Error("Invalid embedding vector.");
+  return `[${vector.join(",")}]`;
+}
+
+async function retrieveEvidence(
+  database: DatabaseClient,
+  context: ApiAuthContext,
+  input: EvidenceSearch,
+  embeddingProvider?: EmbeddingProvider,
+): Promise<DocumentCitation[]> {
+  const queryEmbedding = embeddingProvider?.available ? await embeddingProvider.embed([input.query]).then(([vector]) => vector) : undefined;
+  return withTenant(database, context.organizationId, async (transaction) => {
+    const chunks = await transaction.documentChunk.findMany({
+      where: input.kinds ? { document: { kind: { in: input.kinds } } } : {},
+      include: { document: true },
+      orderBy: { document: { updatedAt: "desc" } },
+      take: 300,
+    });
+    const lexical = new Map<string, RankedChunk>(chunks.map((chunk) => [chunk.id, {
+      id: chunk.id,
+      documentId: chunk.documentId,
+      ordinal: chunk.ordinal,
+      title: chunk.document.title,
+      kind: chunk.document.kind,
+      excerpt: chunk.content.slice(0, 1_000),
+      sourceUrl: chunk.document.sourceUrl,
+      indexedAt: chunk.document.indexedAt?.toISOString() ?? null,
+      lexical: lexicalScore(input.query, `${chunk.document.title}\n${chunk.content}`),
+      semantic: 0,
+    } satisfies RankedChunk]));
+    if (queryEmbedding) {
+      const kinds = input.kinds ?? [];
+      const rows = await transaction.$queryRaw<VectorRow[]>`
+        SELECT chunk.id, chunk.document_id AS "documentId", chunk.ordinal, document.title, document.kind::text AS kind,
+          chunk.content, document.source_url AS "sourceUrl", document.indexed_at AS "indexedAt",
+          chunk.embedding <=> ${vectorLiteral(queryEmbedding)}::vector AS distance
+        FROM document_chunks AS chunk
+        INNER JOIN documents AS document ON document.id = chunk.document_id
+        WHERE chunk.organization_id = ${context.organizationId}::uuid
+          AND chunk.embedding IS NOT NULL
+          AND (${kinds.length} = 0 OR document.kind::text = ANY(${kinds}::text[]))
+        ORDER BY chunk.embedding <=> ${vectorLiteral(queryEmbedding)}::vector
+        LIMIT 48
+      `;
+      for (const row of rows) {
+        const semantic = Math.max(0, 1 - Number(row.distance));
+        const current = lexical.get(row.id);
+        if (current) current.semantic = semantic;
+        else lexical.set(row.id, {
+          id: row.id, documentId: row.documentId, ordinal: row.ordinal, title: row.title, kind: row.kind,
+          excerpt: row.content.slice(0, 1_000), sourceUrl: row.sourceUrl,
+          indexedAt: row.indexedAt?.toISOString() ?? null, lexical: 0, semantic,
+        });
+      }
+    }
+    const greatestLexical = Math.max(1, ...[...lexical.values()].map((citation) => citation.lexical));
+    return [...lexical.values()]
+      .map(({ lexical: lexicalValue, semantic, ...citation }) => ({ ...citation, score: (lexicalValue / greatestLexical) * 0.4 + semantic * 0.6 }))
+      .filter((citation) => citation.score > 0)
+      .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
+      .slice(0, input.limit);
+  });
+}
+
 export async function upsertDocument(
   database: DatabaseClient,
   context: ApiAuthContext,
   input: DocumentUpsert,
   correlationId: string,
+  embeddingProvider?: EmbeddingProvider,
 ) {
   if (!canManageEvidence(context)) throw Object.assign(new Error("Responder role required."), { statusCode: 403 });
   const checksum = documentChecksum(input.content);
   const chunks = chunkDocument(input.content);
   if (chunks.length === 0) throw Object.assign(new Error("Document has no indexable content."), { statusCode: 400 });
+  const embeddings = embeddingProvider?.available ? await embeddingProvider.embed(chunks.map((chunk) => chunk.content)) : null;
 
   return withTenant(database, context.organizationId, async (transaction) => {
     const existing = await transaction.document.findUnique({
@@ -69,6 +150,12 @@ export async function upsertDocument(
         metadata: { checksum },
       })),
     });
+    if (embeddings) {
+      const inserted = await transaction.documentChunk.findMany({ where: { documentId: document.id }, select: { id: true, ordinal: true } });
+      await Promise.all(inserted.map((chunk) => transaction.$executeRaw`
+        UPDATE document_chunks SET embedding = ${vectorLiteral(embeddings[chunk.ordinal]!)}::vector WHERE id = ${chunk.id}::uuid
+      `));
+    }
     await transaction.auditEvent.create({
       data: {
         organizationId: context.organizationId,
@@ -78,7 +165,7 @@ export async function upsertDocument(
         resourceType: "document",
         resourceId: document.id,
         correlationId,
-        metadata: { kind: input.kind, externalId: input.externalId, chunkCount: chunks.length, checksum },
+        metadata: { kind: input.kind, externalId: input.externalId, chunkCount: chunks.length, checksum, embeddingModel: embeddings ? embeddingProvider?.model : null },
       },
     });
     return { id: document.id, checksum, chunkCount: chunks.length, indexedAt: document.indexedAt?.toISOString() ?? new Date().toISOString() };
@@ -92,31 +179,9 @@ export async function listDocuments(database: DatabaseClient, context: ApiAuthCo
   });
 }
 
-/** Tenant-scoped lexical retrieval. Embedding retrieval can be merged into this ranked set once an embedding provider is configured. */
-export async function searchEvidence(database: DatabaseClient, context: ApiAuthContext, input: EvidenceSearch): Promise<DocumentCitation[]> {
-  return withTenant(database, context.organizationId, async (transaction) => {
-    const chunks = await transaction.documentChunk.findMany({
-      where: input.kinds ? { document: { kind: { in: input.kinds } } } : {},
-      include: { document: true },
-      orderBy: { document: { updatedAt: "desc" } },
-      take: 300,
-    });
-    return chunks
-      .map((chunk) => ({
-        id: chunk.id,
-        documentId: chunk.documentId,
-        ordinal: chunk.ordinal,
-        title: chunk.document.title,
-        kind: chunk.document.kind,
-        excerpt: chunk.content.slice(0, 1_000),
-        sourceUrl: chunk.document.sourceUrl,
-        indexedAt: chunk.document.indexedAt?.toISOString() ?? null,
-        score: lexicalScore(input.query, `${chunk.document.title}\n${chunk.content}`),
-      }))
-      .filter((citation) => citation.score > 0)
-      .sort((left, right) => right.score - left.score || left.title.localeCompare(right.title))
-      .slice(0, input.limit);
-  });
+/** Hybrid lexical/vector retrieval. It remains safely lexical-only until an embedding provider is configured. */
+export async function searchEvidence(database: DatabaseClient, context: ApiAuthContext, input: EvidenceSearch, embeddingProvider?: EmbeddingProvider): Promise<DocumentCitation[]> {
+  return retrieveEvidence(database, context, input, embeddingProvider);
 }
 
 export async function generateInvestigation(
@@ -124,38 +189,22 @@ export async function generateInvestigation(
   context: ApiAuthContext,
   incidentId: string,
   provider: InvestigationProvider,
+  embeddingProvider: EmbeddingProvider | undefined,
   correlationId: string,
 ) {
   if (!canManageEvidence(context)) throw Object.assign(new Error("Responder role required."), { statusCode: 403 });
   if (!provider.available) throw Object.assign(new Error("Investigation provider is not configured."), { statusCode: 503 });
 
-  const incidentAndEvidence = await withTenant(database, context.organizationId, async (transaction) => {
+  const incident = await withTenant(database, context.organizationId, async (transaction) => {
     const incident = await transaction.incident.findUnique({
       where: { id: incidentId },
       include: { service: true },
     });
     if (!incident) throw Object.assign(new Error("Incident not found."), { statusCode: 404 });
-    const query = `${incident.title} ${incident.summary ?? ""} ${incident.service.displayName}`;
-    const chunks = await transaction.documentChunk.findMany({
-      include: { document: true },
-      orderBy: { document: { updatedAt: "desc" } },
-      take: 300,
-    });
-    const evidence = chunks
-      .map((chunk) => ({
-        id: chunk.id,
-        title: chunk.document.title,
-        kind: chunk.document.kind,
-        excerpt: chunk.content.slice(0, 1_000),
-        sourceUrl: chunk.document.sourceUrl,
-        indexedAt: chunk.document.indexedAt?.toISOString() ?? null,
-        score: lexicalScore(query, `${chunk.document.title}\n${chunk.content}`),
-      }))
-      .filter((citation) => citation.score > 0)
-      .sort((left, right) => right.score - left.score)
-      .slice(0, 12);
-    return { incident, evidence };
+    return incident;
   });
+  const evidence = await retrieveEvidence(database, context, { query: `${incident.title} ${incident.summary ?? ""} ${incident.service.displayName}`, limit: 12 }, embeddingProvider);
+  const incidentAndEvidence = { incident, evidence };
   if (incidentAndEvidence.evidence.length === 0) {
     throw Object.assign(new Error("No relevant indexed evidence is available for this incident."), { statusCode: 409 });
   }

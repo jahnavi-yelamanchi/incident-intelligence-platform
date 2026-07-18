@@ -51,6 +51,8 @@ Operational credentials must never be committed. Production workloads receive sh
 
 Integration setup and signed webhook contracts are documented in [INTEGRATIONS.md](docs/operations/INTEGRATIONS.md).
 
+Set `OPENAI_API_KEY` to enable production structured investigation and OpenAI-backed `pgvector` retrieval. Without it, the platform remains usable with deterministic lexical retrieval; it never fabricates vector results or sends evidence to a provider implicitly.
+
 ## Live local demo
 
 Use separate terminals after starting Docker and applying migrations:

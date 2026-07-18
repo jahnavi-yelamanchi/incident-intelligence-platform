@@ -26,6 +26,13 @@ export type InvestigationProvider = {
   generate: (input: { incidentTitle: string; incidentSummary: string | null; evidence: InvestigationEvidence[] }) => Promise<GeneratedHypotheses>;
 };
 
+export type EmbeddingProvider = {
+  available: boolean;
+  model: string;
+  dimensions: number;
+  embed: (input: string[]) => Promise<number[][]>;
+};
+
 const outputSchema = {
   name: "incident_hypotheses",
   strict: true,
@@ -59,6 +66,52 @@ export function unavailableInvestigationProvider(): InvestigationProvider {
     model: "unconfigured",
     async generate() {
       throw Object.assign(new Error("Investigation provider is not configured."), { statusCode: 503 });
+    },
+  };
+}
+
+export function unavailableEmbeddingProvider(): EmbeddingProvider {
+  return {
+    available: false,
+    model: "unconfigured",
+    dimensions: 1536,
+    async embed() {
+      throw Object.assign(new Error("Embedding provider is not configured."), { statusCode: 503 });
+    },
+  };
+}
+
+/**
+ * The database index is intentionally fixed at 1536 dimensions. Keeping that
+ * contract here prevents silently writing vectors that PostgreSQL cannot rank.
+ */
+export function createOpenAiEmbeddingProvider(options: { apiKey: string; model: string; dimensions?: number; fetch?: typeof fetch }): EmbeddingProvider {
+  const request = options.fetch ?? fetch;
+  const dimensions = options.dimensions ?? 1536;
+  if (dimensions !== 1536) throw new Error("The current document vector index requires 1536-dimensional embeddings.");
+  return {
+    available: true,
+    model: options.model,
+    dimensions,
+    async embed(input) {
+      if (input.length === 0) return [];
+      const response = await request("https://api.openai.com/v1/embeddings", {
+        method: "POST",
+        headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
+        body: JSON.stringify({ model: options.model, input, dimensions }),
+      });
+      if (!response.ok) throw Object.assign(new Error("Embedding provider request failed."), { statusCode: 502 });
+      const payload = await response.json() as { data?: Array<{ index?: number; embedding?: unknown }> };
+      if (!Array.isArray(payload.data) || payload.data.length !== input.length) {
+        throw Object.assign(new Error("Embedding provider returned an incomplete response."), { statusCode: 502 });
+      }
+      const ordered = [...payload.data].sort((left, right) => (left.index ?? 0) - (right.index ?? 0));
+      return ordered.map((item) => {
+        if (!Array.isArray(item.embedding) || item.embedding.length !== dimensions || item.embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+          throw Object.assign(new Error("Embedding provider returned an invalid vector."), { statusCode: 502 });
+        }
+        return item.embedding as number[];
+      });
     },
   };
 }
