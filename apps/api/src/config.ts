@@ -1,4 +1,10 @@
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { z } from "zod";
+
+// API commands run from the workspace package directory; resolve the repo-root
+// environment file explicitly so local provider credentials work consistently.
+process.loadEnvFile(resolve(dirname(fileURLToPath(import.meta.url)), "../../../.env"));
 
 const configSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
