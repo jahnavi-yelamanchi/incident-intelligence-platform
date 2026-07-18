@@ -1,61 +1,35 @@
 # Aegis Incident Intelligence
 
-A production-oriented incident intelligence and runbook execution platform. Aegis ingests operational events, correlates incidents, retrieves cited evidence, coordinates human approvals, and executes narrowly scoped remediation through durable workflows.
+Aegis is an incident-intelligence and approved-remediation platform for production operations. It ingests signed operational signals, correlates incidents, retrieves cited runbook evidence, coordinates human approvals, and executes narrowly scoped Kubernetes or AWS actions through durable workflows.
 
-## Architecture
+## What it does
 
-- Next.js 16 command center with Auth0 enterprise identity
-- Fastify API with signed webhook ingestion and OpenAPI
-- PostgreSQL 17, Prisma, row-level security, immutable audit history, and `pgvector`
-- Redis and BullMQ for ingestion, correlation, caching, locks, and real-time fan-out
-- Temporal for crash-safe approval and remediation workflows
-- Kubernetes and AWS executors using typed, allowlisted operations
-- Terraform, Helm, EKS, RDS, ElastiCache, SQS, S3, KMS, Secrets Manager, CloudFront, and WAF
+- Command-center console for incidents, services, runbooks, approvals, audit history, and integrations
+- Signed ingestion for Prometheus Alertmanager, generic operational events, GitHub deployment status, Slack events, OpenTelemetry, and Kubernetes signals
+- Tenant-scoped PostgreSQL data model with row-level security, encrypted integration credentials, immutable audit records, and `pgvector`
+- Hybrid runbook retrieval with lexical ranking and OpenAI embeddings when `OPENAI_API_KEY` is configured
+- Cited investigation hypotheses with structured outputs and prompt-injection safeguards
+- Human-gated remediation workflows with policy checks, expiration, independent approvals, cancellation, preflight, verification, and idempotency
+- Allowlisted Kubernetes restart, scale, pause/resume rollout, and rollback actions, plus guarded AWS RDS failover support
+- Auth0 organization-aware access tokens, RBAC, authenticated WebSockets, Redis fan-out, BullMQ, and Temporal workflows
+- Terraform and Helm deployment foundations for AWS/EKS
 
-## Local development
+## Stack
 
-Requirements: Node.js 22+, pnpm 11+, and Docker.
+Next.js · TypeScript · Fastify · PostgreSQL + pgvector · Redis · BullMQ · Temporal · Prisma · Auth0 · OpenAI · Kubernetes · AWS · Terraform · Helm
+
+## Run locally
+
+Requirements: Node.js 22.13+, pnpm 11, and Docker.
 
 ```bash
 cp .env.example .env
-docker compose up -d
 pnpm install
+docker compose up -d
 pnpm --filter @incident/database db:migrate
-pnpm dev
 ```
 
-Local services:
-
-- Web console: `http://localhost:3000`
-- API and OpenAPI: `http://localhost:4000/docs`
-- Temporal UI: `http://localhost:8080`
-- PostgreSQL: `localhost:5432`
-- Redis: `localhost:6379`
-
-Auth0 is bypassed only in local development when its variables are absent. Production fails closed. See `docs/security/IDENTITY.md` for token claims and tenant mapping.
-
-Database migrations use the owner-only `MIGRATION_DATABASE_URL`; application processes use the restricted `DATABASE_URL`. Never run the API with the migration owner because PostgreSQL superusers bypass row-level security.
-
-## Verification
-
-```bash
-pnpm lint
-pnpm typecheck
-pnpm test
-pnpm build
-```
-
-Every pull request and `main` push runs this same verification set in GitHub Actions, plus dependency review. Production release gates and recovery validation are documented in [RELEASE.md](docs/operations/RELEASE.md).
-
-Operational credentials must never be committed. Production workloads receive short-lived AWS credentials through IRSA and Kubernetes permissions through dedicated service accounts.
-
-Integration setup and signed webhook contracts are documented in [INTEGRATIONS.md](docs/operations/INTEGRATIONS.md).
-
-Set `OPENAI_API_KEY` to enable production structured investigation and OpenAI-backed `pgvector` retrieval. Without it, the platform remains usable with deterministic lexical retrieval; it never fabricates vector results or sends evidence to a provider implicitly.
-
-## Live local demo
-
-Use separate terminals after starting Docker and applying migrations:
+Start the interactive local environment in separate terminals:
 
 ```bash
 DEMO_MODE=true pnpm --filter @incident/workers demo:seed
@@ -64,4 +38,25 @@ DATABASE_URL=postgresql://incident_app:incident_app@localhost:5432/incident pnpm
 DEMO_MODE=true API_BASE_URL=http://localhost:4000 pnpm --filter @incident/web dev
 ```
 
-The demo token is accepted only when the API runs in development with `DEMO_MODE=true`. The console reads and selects real records from PostgreSQL; production continues to require verified Auth0 access tokens.
+Open the console at `http://localhost:3000`. API documentation is available at `http://localhost:4000/docs` and Temporal UI at `http://localhost:8080`.
+
+## Configure providers
+
+Add provider credentials only to your local `.env` or production secret manager—never commit them.
+
+```env
+OPENAI_API_KEY=
+OPENAI_INVESTIGATION_MODEL=gpt-5.6
+OPENAI_EMBEDDING_MODEL=text-embedding-3-small
+```
+
+Integration endpoints, environment variables, and signed webhook contracts are documented in [INTEGRATIONS.md](docs/operations/INTEGRATIONS.md). Production release and recovery procedures are in [RELEASE.md](docs/operations/RELEASE.md).
+
+## Verify
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm test
+pnpm build
+```
