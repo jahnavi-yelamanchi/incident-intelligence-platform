@@ -58,4 +58,12 @@ describe("OpenAI embedding provider", () => {
       Array.from({ length: 1536 }, () => 0.2),
     ]);
   });
+
+  it("marks provider quota failures as safe service-unavailable errors", async () => {
+    const provider = createOpenAiEmbeddingProvider({
+      apiKey: "test-key", model: "text-embedding-3-small",
+      fetch: async () => new Response(JSON.stringify({ error: { code: "insufficient_quota" } }), { status: 429 }),
+    });
+    await expect(provider.embed(["verification"])).rejects.toMatchObject({ statusCode: 503, publicCode: "investigation_provider_unavailable" });
+  });
 });

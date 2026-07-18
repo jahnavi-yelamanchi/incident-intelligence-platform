@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+function providerUnavailableError(response: Response) {
+  return Object.assign(new Error("Investigation provider request failed."), {
+    statusCode: response.status === 429 ? 503 : 502,
+    publicCode: "investigation_provider_unavailable",
+  });
+}
+
 export type InvestigationEvidence = {
   id: string;
   title: string;
@@ -100,7 +107,7 @@ export function createOpenAiEmbeddingProvider(options: { apiKey: string; model: 
         headers: { authorization: `Bearer ${options.apiKey}`, "content-type": "application/json" },
         body: JSON.stringify({ model: options.model, input, dimensions }),
       });
-      if (!response.ok) throw Object.assign(new Error("Embedding provider request failed."), { statusCode: 502 });
+      if (!response.ok) throw providerUnavailableError(response);
       const payload = await response.json() as { data?: Array<{ index?: number; embedding?: unknown }> };
       if (!Array.isArray(payload.data) || payload.data.length !== input.length) {
         throw Object.assign(new Error("Embedding provider returned an incomplete response."), { statusCode: 502 });
@@ -141,7 +148,7 @@ export function createOpenAiInvestigationProvider(options: { apiKey: string; mod
           text: { format: { type: "json_schema", ...outputSchema } },
         }),
       });
-      if (!response.ok) throw Object.assign(new Error("Investigation provider request failed."), { statusCode: 502 });
+      if (!response.ok) throw providerUnavailableError(response);
       const payload = await response.json() as { status?: string; output_text?: string };
       if (payload.status !== "completed" || typeof payload.output_text !== "string") {
         throw Object.assign(new Error("Investigation provider did not return a completed structured response."), { statusCode: 502 });

@@ -351,16 +351,17 @@ export async function buildApp(dependencies: ApiDependencies) {
 
   app.setErrorHandler((error, request, reply) => {
     request.log.error({ err: error }, "request failed");
+    const publicProviderError = typeof error === "object" && error !== null && "publicCode" in error && error.publicCode === "investigation_provider_unavailable";
     const statusCode =
       typeof error === "object" &&
       error !== null &&
       "statusCode" in error &&
       typeof error.statusCode === "number" &&
-      error.statusCode < 500
+      (error.statusCode < 500 || publicProviderError)
         ? error.statusCode
         : 500;
     void reply.code(statusCode).send({
-      error: statusCode < 500 ? "request_error" : "internal_error",
+      error: publicProviderError ? "investigation_provider_unavailable" : statusCode < 500 ? "request_error" : "internal_error",
       correlationId: request.id,
     });
   });
