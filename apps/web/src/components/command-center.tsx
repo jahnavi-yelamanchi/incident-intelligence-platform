@@ -26,11 +26,12 @@ import { type IncidentView } from "./data";
 import { MarkIcon } from "./icons";
 
 type ApprovalState = "idle" | "review" | "submitting" | "submitted" | "failed";
+type Workspace = "Command center" | "Incidents" | "Services" | "Runbooks" | "Approvals" | "Audit";
 type HypothesisView = { id: string; statement: string; confidence: number; citations: unknown[]; recommendedChecks: unknown[] };
 
 const navigation = [
   { label: "Command center", icon: LayoutDashboard },
-  { label: "Incidents", icon: Activity, active: true },
+  { label: "Incidents", icon: Activity },
   { label: "Services", icon: Network },
   { label: "Runbooks", icon: BookOpen },
   { label: "Approvals", icon: ClipboardCheck, count: 3 },
@@ -46,6 +47,10 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
   const [approval, setApproval] = useState<ApprovalState>("idle");
   const [liveTick, setLiveTick] = useState(0);
   const [hypotheses, setHypotheses] = useState<HypothesisView[]>([]);
+  const [workspace, setWorkspace] = useState<Workspace>("Incidents");
+  const [drawerView, setDrawerView] = useState("All evidence");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
 
   const active = useMemo(() => incidents.find((incident) => incident.id === activeId) ?? incidents[0], [activeId, incidents]);
 
@@ -136,8 +141,8 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
           <span>Aegis</span>
         </div>
         <nav aria-label="Primary navigation">
-          {navigation.map(({ label, icon: Icon, active, count }) => (
-            <button className={`nav-item ${active ? "active" : ""}`} key={label} title={navCompact ? label : undefined}>
+          {navigation.map(({ label, icon: Icon, count }) => (
+            <button className={`nav-item ${workspace === label ? "active" : ""}`} key={label} onClick={() => setWorkspace(label as Workspace)} title={navCompact ? label : undefined}>
               <Icon size={19} strokeWidth={1.6} />
               <span>{label}</span>
               {count ? <em>{count}</em> : null}
@@ -161,15 +166,16 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
         <div className="top-actions">
           <button className="environment">Production <ChevronDown size={14} /></button>
           <button className="environment">US-East-1 <ChevronDown size={14} /></button>
-          <button className="icon-action" aria-label="Search"><Search size={18} /></button>
-          <button className="icon-action notification" aria-label="Notifications"><Bell size={18} /><i /></button>
+          <button className="icon-action" aria-label="Search" onClick={() => setSearchOpen(true)}><Search size={18} /></button>
+          <button className="icon-action notification" aria-label="Notifications" onClick={() => setNotificationsOpen((value) => !value)}><Bell size={18} /><i /></button>
           <a className="profile" href="/auth/profile"><UserRound size={17} /> {userName} <ChevronDown size={13} /></a>
         </div>
       </header>
 
-      {!incidentsHidden && <IncidentRail incidents={incidents} active={active} onSelect={setActiveId} onClose={() => togglePanel("incidents")} />}
+      {!incidentsHidden && <IncidentRail incidents={incidents} active={active} onSelect={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onClose={() => togglePanel("incidents")} />}
 
       <section className="workspace">
+        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} />}
         <div className="incident-heading">
           <div className="heading-line"><span>{active.reference}</span><h1>{active.title}</h1><Severity value={active.severity} /></div>
           <div className="incident-meta">
@@ -209,7 +215,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
             )}
           </div>
           <div className="drawer-tabs">
-            {["Service graph", "All evidence", "All hypotheses", "Runbook", "Communications", "Approval details"].map((label) => <button key={label}>{label}</button>)}
+            {["Service graph", "All evidence", "All hypotheses", "Runbook", "Communications", "Approval details"].map((label) => <button className={drawerView === label ? "selected" : ""} onClick={() => setDrawerView(label)} key={label}>{label}</button>)}
           </div>
         </div>
       </section>
@@ -224,6 +230,8 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       {approval !== "idle" && (
         <ApprovalDialog incident={active} state={approval} onClose={() => setApproval("idle")} onSubmit={submitApproval} />
       )}
+      {searchOpen && <SearchDialog incidents={incidents} onSelect={(id) => { setActiveId(id); setWorkspace("Incidents"); setSearchOpen(false); }} onClose={() => setSearchOpen(false)} />}
+      {notificationsOpen && <aside className="notification-popover"><strong>Live updates</strong><p>{incidents.filter((incident) => incident.severity === "critical").length} critical incident{incidents.filter((incident) => incident.severity === "critical").length === 1 ? "" : "s"} need attention.</p><button onClick={() => { setWorkspace("Approvals"); setNotificationsOpen(false); }}>Open approvals</button></aside>}
     </main>
   );
 }
@@ -242,6 +250,26 @@ function IncidentRail({ incidents, active, onSelect, onClose }: { incidents: Inc
       <div className="rail-count">Showing {incidents.length} incidents</div>
     </aside>
   );
+}
+
+function FeatureWorkspace({ workspace, incidents, onOpenIncident, onRequest }: { workspace: Workspace; incidents: IncidentView[]; onOpenIncident: (id: string) => void; onRequest: () => void }) {
+  const critical = incidents.filter((incident) => incident.severity === "critical");
+  const content = workspace === "Command center"
+    ? <><p>Live operational posture across the services currently under observation.</p><div className="feature-metrics"><strong>{incidents.length}<small>open incidents</small></strong><strong>{critical.length}<small>critical</small></strong><strong>{new Set(incidents.map((incident) => incident.service)).size}<small>services affected</small></strong></div></>
+    : workspace === "Services"
+      ? <><p>Dependency-aware service inventory discovered from live operational signals.</p><div className="feature-list">{[...new Map(incidents.map((incident) => [incident.service, incident])).values()].map((incident) => <button key={incident.service} onClick={() => onOpenIncident(incident.id)}><Network size={18} /><span><strong>{incident.service}</strong><small>{incident.environment} · {incident.status}</small></span><ChevronRight size={16} /></button>)}</div></>
+      : workspace === "Runbooks"
+        ? <><p>Runbook and evidence workspace. Select an incident to inspect its live evidence and request a cited investigation.</p><div className="feature-list">{incidents.map((incident) => <button key={incident.id} onClick={() => onOpenIncident(incident.id)}><BookOpen size={18} /><span><strong>{incident.reference} · {incident.service}</strong><small>{incident.timeline.length} live evidence event{incident.timeline.length === 1 ? "" : "s"}</small></span><ChevronRight size={16} /></button>)}</div></>
+        : workspace === "Approvals"
+          ? <><p>Pending remediation requests require an independent production approver. Create a safe, policy-gated request from an active incident.</p><button className="feature-primary" onClick={onRequest}>Create approval request <ChevronRight size={17} /></button></>
+          : <><p>Immutable, tenant-scoped security and operational activity is available through the audit explorer API.</p><div className="feature-list">{incidents.flatMap((incident) => incident.timeline.slice(0, 2).map((event) => ({ incident, event }))).map(({ incident, event }) => <button key={`${incident.id}-${event.occurredAt}`} onClick={() => onOpenIncident(incident.id)}><ShieldCheck size={18} /><span><strong>{event.title}</strong><small>{incident.reference} · {new Date(event.occurredAt).toLocaleString()}</small></span><ChevronRight size={16} /></button>)}</div></>;
+  return <section className="feature-workspace"><header><span>{workspace}</span><h1>{workspace === "Command center" ? "Operational overview" : workspace}</h1></header>{content}</section>;
+}
+
+function SearchDialog({ incidents, onSelect, onClose }: { incidents: IncidentView[]; onSelect: (id: string) => void; onClose: () => void }) {
+  const [query, setQuery] = useState("");
+  const matches = incidents.filter((incident) => `${incident.reference} ${incident.title} ${incident.service}`.toLowerCase().includes(query.toLowerCase()));
+  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="search-dialog" role="dialog" aria-modal="true"><header><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents, services, references" /><button onClick={onClose}><X size={18} /></button></header><div>{matches.map((incident) => <button key={incident.id} onClick={() => onSelect(incident.id)}><Severity value={incident.severity} /><span><strong>{incident.reference} · {incident.title}</strong><small>{incident.service} · {incident.environment}</small></span><ChevronRight size={16} /></button>)}</div></section></div>;
 }
 
 function InvestigationPanel({ onClose, hypotheses }: { onClose: () => void; hypotheses: HypothesisView[] }) {
