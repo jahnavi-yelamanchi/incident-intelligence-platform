@@ -27,7 +27,7 @@ if (!isDemoMode && (!config.AUTH0_ISSUER_BASE_URL || !config.AUTH0_AUDIENCE)) {
 const authenticate = isDemoMode
   ? async (authorization: string | undefined) =>
       authorization === "Bearer aegis-demo"
-        ? { subject: "demo-operator", organizationId: config.DEMO_ORGANIZATION_ID, roles: ["responder", "production-approver"] }
+        ? { subject: "demo-operator", organizationId: config.DEMO_ORGANIZATION_ID, roles: ["responder", "incident-commander", "production-approver"] }
         : authorization === "Bearer aegis-demo-approver"
           ? { subject: "demo-approver", organizationId: config.DEMO_ORGANIZATION_ID, roles: ["production-approver"] }
         : null
