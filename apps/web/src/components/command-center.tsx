@@ -53,6 +53,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [actionRequests, setActionRequests] = useState<ActionView[]>([]);
+  const [approvalDecision, setApprovalDecision] = useState<{ id: string; decision: "approved" | "rejected" } | null>(null);
 
   const active = useMemo(() => incidents.find((incident) => incident.id === activeId) ?? incidents[0], [activeId, incidents]);
 
@@ -185,7 +186,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       {!incidentsHidden && <IncidentRail incidents={incidents} active={active} onSelect={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onClose={() => togglePanel("incidents")} />}
 
       <section className="workspace">
-        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} actionRequests={actionRequests} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} />}
+        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} actionRequests={actionRequests} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} onDecide={setApprovalDecision} />}
         <div className="incident-heading">
           <div className="heading-line"><span>{active.reference}</span><h1>{active.title}</h1><Severity value={active.severity} /></div>
           <div className="incident-meta">
@@ -242,6 +243,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       )}
       {searchOpen && <SearchDialog incidents={incidents} onSelect={(id) => { setActiveId(id); setWorkspace("Incidents"); setSearchOpen(false); }} onClose={() => setSearchOpen(false)} />}
       {notificationsOpen && <aside className="notification-popover"><strong>Live updates</strong><p>{incidents.filter((incident) => incident.severity === "critical").length} critical incident{incidents.filter((incident) => incident.severity === "critical").length === 1 ? "" : "s"} need attention.</p><button onClick={() => { setWorkspace("Approvals"); setNotificationsOpen(false); }}>Open approvals</button></aside>}
+      {approvalDecision && <ApprovalDecisionDialog action={actionRequests.find((action) => action.id === approvalDecision.id)} decision={approvalDecision.decision} onClose={() => setApprovalDecision(null)} onComplete={() => { setApprovalDecision(null); window.location.reload(); }} />}
     </main>
   );
 }
@@ -262,7 +264,7 @@ function IncidentRail({ incidents, active, onSelect, onClose }: { incidents: Inc
   );
 }
 
-function FeatureWorkspace({ workspace, incidents, actionRequests, onOpenIncident, onRequest }: { workspace: Workspace; incidents: IncidentView[]; actionRequests: ActionView[]; onOpenIncident: (id: string) => void; onRequest: () => void }) {
+function FeatureWorkspace({ workspace, incidents, actionRequests, onOpenIncident, onRequest, onDecide }: { workspace: Workspace; incidents: IncidentView[]; actionRequests: ActionView[]; onOpenIncident: (id: string) => void; onRequest: () => void; onDecide: (decision: { id: string; decision: "approved" | "rejected" }) => void }) {
   const critical = incidents.filter((incident) => incident.severity === "critical");
   const content = workspace === "Command center"
     ? <><p>Live operational posture across the services currently under observation.</p><div className="feature-metrics"><strong>{incidents.length}<small>open incidents</small></strong><strong>{critical.length}<small>critical</small></strong><strong>{new Set(incidents.map((incident) => incident.service)).size}<small>services affected</small></strong></div></>
@@ -271,7 +273,7 @@ function FeatureWorkspace({ workspace, incidents, actionRequests, onOpenIncident
       : workspace === "Runbooks"
         ? <><p>Runbook and evidence workspace. Select an incident to inspect its live evidence and request a cited investigation.</p><div className="feature-list">{incidents.map((incident) => <button key={incident.id} onClick={() => onOpenIncident(incident.id)}><BookOpen size={18} /><span><strong>{incident.reference} · {incident.service}</strong><small>{incident.timeline.length} live evidence event{incident.timeline.length === 1 ? "" : "s"}</small></span><ChevronRight size={16} /></button>)}</div></>
         : workspace === "Approvals"
-          ? <><p>Pending remediation requests require an independent production approver. Create a safe, policy-gated request from an active incident.</p><div className="feature-list">{actionRequests.length ? actionRequests.map((action) => <button key={action.id} onClick={onRequest}><ClipboardCheck size={18} /><span><strong>{action.actionType.replace("kubernetes.", "").replaceAll("-", " ")} · {action.status}</strong><small>{action.incident.reference} · {action.approvalCount}/{action.requiredApprovals} approvals</small></span><ChevronRight size={16} /></button>) : <p>No approval requests yet.</p>}</div><button className="feature-primary" onClick={onRequest}>Create approval request <ChevronRight size={17} /></button></>
+          ? <><p>Pending remediation requests require an independent production approver. Create a safe, policy-gated request from an active incident.</p><div className="feature-list">{actionRequests.length ? actionRequests.map((action) => <div className="approval-row" key={action.id}><button onClick={onRequest}><ClipboardCheck size={18} /><span><strong>{action.actionType.replace("kubernetes.", "").replaceAll("-", " ")} · {action.status}</strong><small>{action.incident.reference} · {action.approvalCount}/{action.requiredApprovals} approvals</small></span><ChevronRight size={16} /></button>{action.status === "pending" && <div><button onClick={() => onDecide({ id: action.id, decision: "rejected" })}>Reject</button><button onClick={() => onDecide({ id: action.id, decision: "approved" })}>Approve</button></div>}</div>) : <p>No approval requests yet.</p>}</div><button className="feature-primary" onClick={onRequest}>Create approval request <ChevronRight size={17} /></button></>
           : <><p>Immutable, tenant-scoped security and operational activity is available through the audit explorer API.</p><div className="feature-list">{incidents.flatMap((incident) => incident.timeline.slice(0, 2).map((event) => ({ incident, event }))).map(({ incident, event }) => <button key={`${incident.id}-${event.occurredAt}`} onClick={() => onOpenIncident(incident.id)}><ShieldCheck size={18} /><span><strong>{event.title}</strong><small>{incident.reference} · {new Date(event.occurredAt).toLocaleString()}</small></span><ChevronRight size={16} /></button>)}</div></>;
   return <section className="feature-workspace"><header><span>{workspace}</span><h1>{workspace === "Command center" ? "Operational overview" : workspace}</h1></header>{content}</section>;
 }
@@ -280,6 +282,20 @@ function SearchDialog({ incidents, onSelect, onClose }: { incidents: IncidentVie
   const [query, setQuery] = useState("");
   const matches = incidents.filter((incident) => `${incident.reference} ${incident.title} ${incident.service}`.toLowerCase().includes(query.toLowerCase()));
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="search-dialog" role="dialog" aria-modal="true"><header><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents, services, references" /><button onClick={onClose}><X size={18} /></button></header><div>{matches.map((incident) => <button key={incident.id} onClick={() => onSelect(incident.id)}><Severity value={incident.severity} /><span><strong>{incident.reference} · {incident.title}</strong><small>{incident.service} · {incident.environment}</small></span><ChevronRight size={16} /></button>)}</div></section></div>;
+}
+
+function ApprovalDecisionDialog({ action, decision, onClose, onComplete }: { action: ActionView | undefined; decision: "approved" | "rejected"; onClose: () => void; onComplete: () => void }) {
+  const [state, setState] = useState<"review" | "sending" | "done" | "failed">("review");
+  if (!action) return null;
+  const submit = async () => {
+    setState("sending");
+    try {
+      const response = await fetch(`/api/demo/actions/${action.id}/approval`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ decision }) });
+      if (!response.ok) throw new Error("decision failed");
+      setState("done");
+    } catch { setState("failed"); }
+  };
+  return <div className="modal-backdrop"><section className="approval-dialog" role="dialog" aria-modal="true"><header><div><span>Independent production approver</span><h2>{decision === "approved" ? "Approve action" : "Reject action"}</h2></div><button onClick={onClose}><X size={19} /></button></header><div className="approval-details"><div><span>Action</span><strong>{action.actionType.replace("kubernetes.", "").replaceAll("-", " ")}</strong></div><div><span>Incident</span><strong>{action.incident.reference}</strong></div></div>{state === "done" ? <div className="approval-success"><span><Check size={28} /></span><h2>Decision recorded</h2><p>The durable remediation workflow has been signalled and the audit trail updated.</p><button onClick={onComplete}>Return to inbox</button></div> : <><div className="policy-pass"><ShieldCheck size={19} /><span><strong>Independent approval check</strong><small>You are acting as the demo production approver, not the requester.</small></span></div>{state === "failed" && <p className="approval-error">The action is no longer eligible for this decision.</p>}<footer><button className="secondary" onClick={onClose}>Cancel</button><button className="confirm" onClick={() => void submit()} disabled={state === "sending"}>{state === "sending" ? "Recording decision" : decision === "approved" ? "Approve action" : "Reject action"}</button></footer></>}</section></div>;
 }
 
 function InvestigationPanel({ onClose, hypotheses, incident, view, onRequest }: { onClose: () => void; hypotheses: HypothesisView[]; incident: IncidentView; view: string; onRequest: () => void }) {
