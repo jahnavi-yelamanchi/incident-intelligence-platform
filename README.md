@@ -2,7 +2,7 @@
 
 Aegis is an incident-intelligence and approved-remediation platform for production operations. It ingests signed operational signals, correlates incidents, retrieves cited runbook evidence, coordinates human approvals, and executes narrowly scoped Kubernetes or AWS actions through durable workflows.
 
-![Aegis operational signal flowing through an approval gate to a Kubernetes service cluster](assets/readme/aegis-operations-flow.png)
+![Aegis command center showing live incident evidence, investigation controls, and the remediation approval gate](assets/readme/aegis-command-center-demo.png)
 
 ## What it does
 
