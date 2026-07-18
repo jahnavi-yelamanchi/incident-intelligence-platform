@@ -220,7 +220,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
         </div>
       </section>
 
-      {!investigationHidden && <InvestigationPanel onClose={() => togglePanel("investigation")} hypotheses={hypotheses} />}
+      {!investigationHidden && <InvestigationPanel onClose={() => togglePanel("investigation")} hypotheses={hypotheses} incident={active} view={drawerView} onRequest={() => setApproval("review")} />}
 
       <footer className="action-bar">
         <div><Sparkles size={18} /><span><small>Suggested remediation</small>Increase checkout-api database pool from 50 to 150.</span></div>
@@ -272,11 +272,25 @@ function SearchDialog({ incidents, onSelect, onClose }: { incidents: IncidentVie
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}><section className="search-dialog" role="dialog" aria-modal="true"><header><Search size={18} /><input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search incidents, services, references" /><button onClick={onClose}><X size={18} /></button></header><div>{matches.map((incident) => <button key={incident.id} onClick={() => onSelect(incident.id)}><Severity value={incident.severity} /><span><strong>{incident.reference} · {incident.title}</strong><small>{incident.service} · {incident.environment}</small></span><ChevronRight size={16} /></button>)}</div></section></div>;
 }
 
-function InvestigationPanel({ onClose, hypotheses }: { onClose: () => void; hypotheses: HypothesisView[] }) {
+function InvestigationPanel({ onClose, hypotheses, incident, view, onRequest }: { onClose: () => void; hypotheses: HypothesisView[]; incident: IncidentView; view: string; onRequest: () => void }) {
   const top = hypotheses[0];
+  const timeline = incident.timeline;
+  const body = view === "Service graph"
+    ? <section className="drawer-detail"><span>Impact map</span><h3>{incident.service}</h3><p>Active incident service in <b>{incident.environment}</b>. Use the Services workspace to follow affected services and return to their incidents.</p><div className="graph-node root">{incident.service}</div><div className="graph-connector" /><div className="graph-node muted">Observed dependencies</div></section>
+    : view === "All evidence"
+      ? <section className="drawer-detail"><span>Collected evidence</span>{timeline.map((event) => <article key={`${event.occurredAt}-${event.title}`}><strong>{event.title}</strong><small>{event.detail ?? "Recorded operational evidence"}</small><time>{new Date(event.occurredAt).toLocaleTimeString()}</time></article>)}</section>
+      : view === "All hypotheses"
+        ? <section className="drawer-detail"><span>Cited hypotheses</span>{hypotheses.length ? hypotheses.map((hypothesis) => <article key={hypothesis.id}><strong>{hypothesis.statement}</strong><small>{Math.round(hypothesis.confidence * 100)}% confidence · {hypothesis.citations.length} citations</small></article>) : <p>No cited hypotheses yet. Add service documents or runbooks, then generate an investigation.</p>}</section>
+        : view === "Runbook"
+          ? <section className="drawer-detail"><span>Runbook execution</span><h3>Guided checks</h3><p>Verify recent deploy timing, saturation, and dependent service health before selecting a remediation action.</p><button onClick={onRequest}>Open approval gate <ChevronRight size={16} /></button></section>
+          : view === "Communications"
+            ? <section className="drawer-detail"><span>Incident communications</span><p>Slack and GitHub integrations deliver signed incident updates when configured. Live timeline comments remain attached to this incident.</p><button onClick={() => navigator.clipboard?.writeText(`${incident.reference} · ${incident.title}`)}>Copy incident summary</button></section>
+            : <section className="drawer-detail"><span>Approval details</span><h3>Human approval required</h3><p>Every availability-affecting action receives policy evaluation, preflight validation, and one independent production approval before execution.</p><button onClick={onRequest}>Request remediation approval <ChevronRight size={16} /></button></section>;
   return (
     <aside className="investigation-panel">
       <div className="rail-title"><h2>Investigation</h2><button onClick={onClose} aria-label="Hide investigation"><ChevronRight size={17} /></button></div>
+      {view !== "All evidence" && view !== "All hypotheses" ? body : null}
+      {view === "All evidence" || view === "All hypotheses" ? body : null}
       <section className="hypothesis">
         <span>Top hypothesis</span>
         {top ? <><h3>{top.statement}</h3><p>{Math.round(top.confidence * 100)}% confidence · {top.citations.length} cited source{top.citations.length === 1 ? "" : "s"}</p></> : <><h3>No cited hypothesis yet</h3><p>Index runbooks or service documents, then generate an investigation with a configured provider.</p></>}
