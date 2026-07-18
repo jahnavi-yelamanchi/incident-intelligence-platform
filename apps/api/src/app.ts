@@ -34,6 +34,7 @@ export type ApiDependencies = {
   readiness: () => Promise<{ database: boolean; redis: boolean; queue: boolean }>;
   authenticate: (authorization: string | undefined) => Promise<ApiAuthContext | null>;
   listIncidents: (context: ApiAuthContext, query: ListIncidentsQuery) => Promise<unknown[]>;
+  listActionRequests?: (context: ApiAuthContext) => Promise<unknown[]>;
   createActionRequest: (context: ApiAuthContext, incidentId: string, input: CreateActionRequest, correlationId: string) => Promise<unknown>;
   decideActionApproval: (context: ApiAuthContext, actionRequestId: string, input: ApprovalDecision, correlationId: string) => Promise<unknown>;
   cancelActionRequest: (context: ApiAuthContext, actionRequestId: string, reason: string, correlationId: string) => Promise<unknown>;
@@ -116,6 +117,12 @@ export async function buildApp(dependencies: ApiDependencies) {
     }
 
     return { items: await dependencies.listIncidents(context, parsed.data) };
+  });
+  app.get("/v1/actions", async (request, reply) => {
+    const context = await dependencies.authenticate(request.headers.authorization);
+    if (!context) return reply.code(401).send({ error: "unauthorized" });
+    if (!dependencies.listActionRequests) return reply.code(503).send({ error: "actions_unavailable" });
+    return { items: await dependencies.listActionRequests(context) };
   });
   app.get("/v1/audit-events", async (request, reply) => {
     const context = await dependencies.authenticate(request.headers.authorization);

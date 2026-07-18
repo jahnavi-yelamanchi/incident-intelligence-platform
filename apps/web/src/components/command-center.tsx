@@ -28,6 +28,7 @@ import { MarkIcon } from "./icons";
 type ApprovalState = "idle" | "review" | "submitting" | "submitted" | "failed";
 type Workspace = "Command center" | "Incidents" | "Services" | "Runbooks" | "Approvals" | "Audit";
 type HypothesisView = { id: string; statement: string; confidence: number; citations: unknown[]; recommendedChecks: unknown[] };
+type ActionView = { id: string; status: string; actionType: string; requiredApprovals: number; approvalCount: number; incident: { reference: string; title: string }; createdAt: string };
 
 const navigation = [
   { label: "Command center", icon: LayoutDashboard },
@@ -51,6 +52,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
   const [drawerView, setDrawerView] = useState("All evidence");
   const [searchOpen, setSearchOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [actionRequests, setActionRequests] = useState<ActionView[]>([]);
 
   const active = useMemo(() => incidents.find((incident) => incident.id === activeId) ?? incidents[0], [activeId, incidents]);
 
@@ -68,6 +70,14 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       .catch(() => { if (!cancelled) setHypotheses([]); })
     return () => { cancelled = true; };
   }, [activeId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = () => void fetch("/api/demo/actions").then((response) => response.ok ? response.json() as Promise<{ items: ActionView[] }> : { items: [] }).then((payload) => { if (!cancelled) setActionRequests(payload.items); }).catch(() => undefined);
+    load();
+    const interval = window.setInterval(load, 8_000);
+    return () => { cancelled = true; window.clearInterval(interval); };
+  }, []);
 
   useEffect(() => {
     let socket: WebSocket | undefined;
@@ -175,7 +185,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       {!incidentsHidden && <IncidentRail incidents={incidents} active={active} onSelect={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onClose={() => togglePanel("incidents")} />}
 
       <section className="workspace">
-        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} />}
+        {workspace !== "Incidents" && <FeatureWorkspace workspace={workspace} incidents={incidents} actionRequests={actionRequests} onOpenIncident={(id) => { setActiveId(id); setWorkspace("Incidents"); }} onRequest={() => setApproval("review")} />}
         <div className="incident-heading">
           <div className="heading-line"><span>{active.reference}</span><h1>{active.title}</h1><Severity value={active.severity} /></div>
           <div className="incident-meta">
@@ -252,7 +262,7 @@ function IncidentRail({ incidents, active, onSelect, onClose }: { incidents: Inc
   );
 }
 
-function FeatureWorkspace({ workspace, incidents, onOpenIncident, onRequest }: { workspace: Workspace; incidents: IncidentView[]; onOpenIncident: (id: string) => void; onRequest: () => void }) {
+function FeatureWorkspace({ workspace, incidents, actionRequests, onOpenIncident, onRequest }: { workspace: Workspace; incidents: IncidentView[]; actionRequests: ActionView[]; onOpenIncident: (id: string) => void; onRequest: () => void }) {
   const critical = incidents.filter((incident) => incident.severity === "critical");
   const content = workspace === "Command center"
     ? <><p>Live operational posture across the services currently under observation.</p><div className="feature-metrics"><strong>{incidents.length}<small>open incidents</small></strong><strong>{critical.length}<small>critical</small></strong><strong>{new Set(incidents.map((incident) => incident.service)).size}<small>services affected</small></strong></div></>
@@ -261,7 +271,7 @@ function FeatureWorkspace({ workspace, incidents, onOpenIncident, onRequest }: {
       : workspace === "Runbooks"
         ? <><p>Runbook and evidence workspace. Select an incident to inspect its live evidence and request a cited investigation.</p><div className="feature-list">{incidents.map((incident) => <button key={incident.id} onClick={() => onOpenIncident(incident.id)}><BookOpen size={18} /><span><strong>{incident.reference} · {incident.service}</strong><small>{incident.timeline.length} live evidence event{incident.timeline.length === 1 ? "" : "s"}</small></span><ChevronRight size={16} /></button>)}</div></>
         : workspace === "Approvals"
-          ? <><p>Pending remediation requests require an independent production approver. Create a safe, policy-gated request from an active incident.</p><button className="feature-primary" onClick={onRequest}>Create approval request <ChevronRight size={17} /></button></>
+          ? <><p>Pending remediation requests require an independent production approver. Create a safe, policy-gated request from an active incident.</p><div className="feature-list">{actionRequests.length ? actionRequests.map((action) => <button key={action.id} onClick={onRequest}><ClipboardCheck size={18} /><span><strong>{action.actionType.replace("kubernetes.", "").replaceAll("-", " ")} · {action.status}</strong><small>{action.incident.reference} · {action.approvalCount}/{action.requiredApprovals} approvals</small></span><ChevronRight size={16} /></button>) : <p>No approval requests yet.</p>}</div><button className="feature-primary" onClick={onRequest}>Create approval request <ChevronRight size={17} /></button></>
           : <><p>Immutable, tenant-scoped security and operational activity is available through the audit explorer API.</p><div className="feature-list">{incidents.flatMap((incident) => incident.timeline.slice(0, 2).map((event) => ({ incident, event }))).map(({ incident, event }) => <button key={`${incident.id}-${event.occurredAt}`} onClick={() => onOpenIncident(incident.id)}><ShieldCheck size={18} /><span><strong>{event.title}</strong><small>{incident.reference} · {new Date(event.occurredAt).toLocaleString()}</small></span><ChevronRight size={16} /></button>)}</div></>;
   return <section className="feature-workspace"><header><span>{workspace}</span><h1>{workspace === "Command center" ? "Operational overview" : workspace}</h1></header>{content}</section>;
 }

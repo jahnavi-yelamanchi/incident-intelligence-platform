@@ -39,6 +39,17 @@ export const approvalDecisionSchema = z.object({
 
 export type ApprovalDecision = z.infer<typeof approvalDecisionSchema>;
 
+export async function listActionRequests(database: DatabaseClient, context: ApiAuthContext) {
+  return withTenant(database, context.organizationId, async (transaction) => {
+    const actions = await transaction.actionRequest.findMany({ orderBy: { createdAt: "desc" }, take: 100, include: { incident: { select: { reference: true, title: true } }, approvals: true } });
+    return actions.map((action) => ({
+      id: action.id, status: action.status, actionType: action.actionType, target: action.target, reason: action.reason,
+      requiredApprovals: action.requiredApprovals, approvalCount: action.approvals.filter((approval) => approval.decision === "approved").length,
+      incident: action.incident, createdAt: action.createdAt.toISOString(), expiresAt: action.expiresAt.toISOString(),
+    }));
+  });
+}
+
 export async function listIncidents(
   database: DatabaseClient,
   context: ApiAuthContext,

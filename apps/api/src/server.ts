@@ -2,7 +2,7 @@ import { buildApp } from "./app.js";
 import { loadConfig } from "./config.js";
 import { createQueueRuntime, createRealtimeRelay } from "@incident/queues";
 import { createDatabaseClient } from "@incident/database";
-import { cancelActionRequest, createActionRequest, decideActionApproval, listIncidents } from "./incidents.js";
+import { cancelActionRequest, createActionRequest, decideActionApproval, listActionRequests, listIncidents } from "./incidents.js";
 import { generateInvestigation, listHypotheses, searchEvidence, upsertDocument } from "./investigation.js";
 import { createOpenAiInvestigationProvider, unavailableInvestigationProvider } from "./investigation-provider.js";
 import { createTemporalRemediationDispatcher, unavailableRemediationDispatcher } from "./remediation-dispatcher.js";
@@ -68,6 +68,7 @@ const app = await buildApp({
   },
   authenticate,
   listIncidents: (context, query) => listIncidents(database, context, query),
+  listActionRequests: (context) => listActionRequests(database, context),
   createActionRequest: (context, incidentId, input, correlationId) =>
     createActionRequest(database, context, incidentId, input, correlationId, remediationDispatcher, evaluatePolicy),
   decideActionApproval: (context, actionRequestId, input, correlationId) =>
