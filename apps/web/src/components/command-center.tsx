@@ -109,7 +109,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
     });
   }
 
-  async function submitApproval() {
+  async function submitApproval(actionType: string, replicas: number) {
     const incident = active;
     if (!incident) return;
     setApproval("submitting");
@@ -117,7 +117,7 @@ export function CommandCenter({ userName, initialIncidents, realtimeToken, realt
       const response = await fetch("/api/demo/approval", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ incidentId: incident.id, service: incident.service, environment: incident.environment }),
+        body: JSON.stringify({ incidentId: incident.id, service: incident.service, environment: incident.environment, actionType, replicas }),
       });
       if (!response.ok) throw new Error("Approval request was rejected.");
       setApproval("submitted");
@@ -295,7 +295,10 @@ function InvestigationPanel({ onClose, hypotheses }: { onClose: () => void; hypo
   );
 }
 
-function ApprovalDialog({ incident, state, onClose, onSubmit }: { incident: IncidentView; state: ApprovalState; onClose: () => void; onSubmit: () => Promise<void> }) {
+function ApprovalDialog({ incident, state, onClose, onSubmit }: { incident: IncidentView; state: ApprovalState; onClose: () => void; onSubmit: (actionType: string, replicas: number) => Promise<void> }) {
+  const [actionType, setActionType] = useState("kubernetes.scale");
+  const [replicas, setReplicas] = useState(3);
+  const actionLabel = { "kubernetes.scale": "Scale workload", "kubernetes.restart": "Restart workload", "kubernetes.pause-rollout": "Pause rollout", "kubernetes.resume-rollout": "Resume rollout", "kubernetes.rollback": "Rollback deployment" }[actionType] ?? actionType;
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="approval-dialog" role="dialog" aria-modal="true" aria-labelledby="approval-title">
@@ -304,10 +307,11 @@ function ApprovalDialog({ incident, state, onClose, onSubmit }: { incident: Inci
         ) : (
           <>
             <header><div><span>Human approval gate</span><h2 id="approval-title">Review remediation</h2></div><button onClick={onClose} aria-label="Close"><X size={19} /></button></header>
-            <div className="approval-details"><div><span>Action</span><strong>Scale Kubernetes workload</strong></div><div><span>Target</span><strong>{incident.service} / {incident.environment}</strong></div><div><span>Change</span><strong>Scale to 3 replicas</strong></div><div><span>Risk</span><strong>Availability-affecting · preflight required</strong></div></div>
+            <div className="action-picker" role="group" aria-label="Remediation action">{Object.entries({ "kubernetes.scale": "Scale", "kubernetes.restart": "Restart", "kubernetes.pause-rollout": "Pause", "kubernetes.resume-rollout": "Resume", "kubernetes.rollback": "Rollback" }).map(([value, label]) => <button className={actionType === value ? "selected" : ""} onClick={() => setActionType(value)} key={value}>{label}</button>)}</div>
+            <div className="approval-details"><div><span>Action</span><strong>{actionLabel}</strong></div><div><span>Target</span><strong>{incident.service} / {incident.environment}</strong></div><div><span>Change</span>{actionType === "kubernetes.scale" ? <label className="replica-field">Replicas <input type="number" min="1" max="20" value={replicas} onChange={(event) => setReplicas(Number(event.target.value))} /></label> : <strong>Versioned, allowlisted operation</strong>}</div><div><span>Risk</span><strong>Availability-affecting · preflight required</strong></div></div>
             <div className="policy-pass"><ShieldCheck size={19} /><span><strong>Policy checks passed</strong><small>Requires 1 independent Production Approver confirmation</small></span></div>
             {state === "failed" && <p className="approval-error">Could not create the approval request. Start the local API with `DEMO_MODE=true`.</p>}
-            <footer><button className="secondary" onClick={onClose}>Cancel</button><button className="confirm" onClick={() => void onSubmit()} disabled={state === "submitting"}>{state === "submitting" ? <><span className="spinner" /> Sending request</> : <>Send for approval <ChevronRight size={17} /></>}</button></footer>
+            <footer><button className="secondary" onClick={onClose}>Cancel</button><button className="confirm" onClick={() => void onSubmit(actionType, replicas)} disabled={state === "submitting"}>{state === "submitting" ? <><span className="spinner" /> Sending request</> : <>Send for approval <ChevronRight size={17} /></>}</button></footer>
           </>
         )}
       </section>
